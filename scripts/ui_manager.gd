@@ -444,7 +444,14 @@ func _show_new_monster(tier: int) -> void:
 	preview.set_monster(tier)
 	preview.custom_minimum_size = Vector2(180, 190)
 	preview.size = Vector2(180, 190)
-	preview.set_anchors_preset(Control.PRESET_CENTER)
+	preview.anchor_left = 0.5
+	preview.anchor_top = 0.5
+	preview.anchor_right = 0.5
+	preview.anchor_bottom = 0.5
+	preview.offset_left = -90.0
+	preview.offset_top = -95.0
+	preview.offset_right = 90.0
+	preview.offset_bottom = 95.0
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(preview)
 	card.add_child(stage)

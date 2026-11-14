@@ -256,7 +256,7 @@ func _build_layout() -> void:
 	bottom_row.add_child(about)
 
 	layout.add_child(_label("Developed by Wael Gharsalli", 14, Color("#ffe27b")))
-	layout.add_child(_label("Progress saves automatically  •  v1.3.1", 13, Color("#9fb4d8")))
+	layout.add_child(_label("Progress saves automatically  •  v1.3.2", 13, Color("#9fb4d8")))
 
 
 func _on_play_pressed() -> void:

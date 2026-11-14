@@ -151,8 +151,15 @@ func _build() -> void:
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
 
+	# v1.3.2: centre via a full-rect CenterContainer (same pattern as the
+	# Settings/Pause panels). PRESET_CENTER on the panel itself was wrong:
+	# at build time the panel size is (0,0), so its top-left landed at the
+	# screen centre and the panel ran off the right/bottom edges.
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+
 	var panel := PanelContainer.new()
-	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	panel.custom_minimum_size = Vector2(620, 640)
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("#fff8df")
@@ -164,7 +171,7 @@ func _build() -> void:
 	style.content_margin_top = 20
 	style.content_margin_bottom = 20
 	panel.add_theme_stylebox_override("panel", style)
-	add_child(panel)
+	center.add_child(panel)
 
 	var layout := VBoxContainer.new()
 	layout.add_theme_constant_override("separation", 14)
