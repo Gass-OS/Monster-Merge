@@ -9,7 +9,11 @@ const PALETTE := [
 ]
 const FACE_COLOR := Color("#26374c")
 const CHEEK_COLOR := Color(1.0, 0.55, 0.6, 0.75)
-const SILHOUETTE_COLOR := Color("#33475e")
+const SILHOUETTE_COLOR := Color("#080b12")
+const GLOW_COLORS := [
+	Color("#4cc3ff"), Color("#58ff7a"), Color("#a6ff4f"), Color("#ff7a2e"),
+	Color("#ffcc33"), Color("#7ff6ff"), Color("#5ad0ff"), Color("#c06bff")
+]
 
 var tile_index: int = -1
 var tier: int = 0
@@ -69,24 +73,55 @@ func _finish_drag(global_position: Vector2) -> void:
 					break
 	_dragging = false
 
+func _glow_color() -> Color:
+	if silhouette_mode:
+		return Color("#34425e")
+	if tier <= 0:
+		return Color("#27324a")
+	return GLOW_COLORS[clampi(tier - 1, 0, GLOW_COLORS.size() - 1)]
+
 func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, size)
+	var was_sil := silhouette_mode
+	var gc := _glow_color()
 	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color("#d8f4f2") if tier == 0 else Color("#fff8df")
-	panel.border_color = Color("#8ac9c5")
-	panel.set_border_width_all(3)
-	panel.set_corner_radius_all(18)
+	panel.bg_color = Color("#0b0f17") if tier == 0 else Color("#121826")
+	panel.border_color = Color("#222b3d") if tier == 0 else gc.darkened(0.35)
+	panel.set_border_width_all(2 if tier == 0 else 3)
+	panel.set_corner_radius_all(14)
+	if tier > 0 and not was_sil:
+		panel.shadow_color = Color(gc, 0.28)
+		panel.shadow_size = 7
 	draw_style_box(panel, rect)
 	if tier == 0:
-		draw_circle(size * 0.5, 13.0, Color("#b9dedb"))
+		draw_arc(size * 0.5, 12.0, 0.0, TAU, 28, Color("#2a3550"), 2.0, true)
 		return
 	var center := Vector2(size.x * 0.5, size.y * 0.47)
-	var body_color: Color = SILHOUETTE_COLOR if silhouette_mode else PALETTE[tier - 1]
+	var s := minf(size.x, size.y) * 0.31
+	# Soft coloured aura behind the creature.
+	if not was_sil:
+		for i in range(4):
+			draw_circle(center, s * (1.75 - float(i) * 0.38), Color(gc, 0.045 + 0.008 * float(tier)))
+	# Ground shadow.
+	draw_set_transform(center + Vector2(0, s * 1.2), 0.0, Vector2(1.0, 0.28))
+	draw_circle(Vector2.ZERO, s, Color(0, 0, 0, 0.55))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# Rim light: draw the flat silhouette offset in the glow colour first.
+	silhouette_mode = true
+	_draw_creature(center + Vector2(-3.0, -3.0), Color(gc, 0.95))
+	_draw_creature(center + Vector2(2.5, 3.0), Color(gc.darkened(0.45), 0.55))
+	silhouette_mode = was_sil
+	var body_color: Color = SILHOUETTE_COLOR if was_sil else PALETTE[tier - 1].darkened(0.55)
 	_draw_creature(center, body_color)
+	# Tier plate.
 	var font := ThemeDB.fallback_font
-	draw_string(font, Vector2(8, size.y - 9), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 16, Color.WHITE)
-	draw_rect(Rect2(8, size.y - 26, size.x - 16, 22), Color("#273b52"))
-	draw_string(font, Vector2(8, size.y - 9), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, Color.WHITE)
+	var plate := StyleBoxFlat.new()
+	plate.bg_color = Color("#080b12")
+	plate.border_color = gc.darkened(0.3)
+	plate.set_border_width_all(1)
+	plate.set_corner_radius_all(6)
+	draw_style_box(plate, Rect2(8, size.y - 26, size.x - 16, 20))
+	draw_string(font, Vector2(8, size.y - 11), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, gc.lightened(0.25))
 
 func _draw_creature(c: Vector2, color: Color) -> void:
 	var s := minf(size.x, size.y) * 0.31
@@ -137,21 +172,17 @@ func _round_body(c: Vector2, s: float, r: float, c_main: Color, c_dark: Color, c
 		draw_circle(c + Vector2(-r * 0.38, -r * 0.44), r * 0.2, Color(1, 1, 1, 0.35))
 
 func _face(c: Vector2, s: float) -> void:
-	var er := maxf(3.5, s * 0.13)
+	# Menacing glowing eyes and a stern mouth.
+	var gc := _glow_color()
+	var er := maxf(3.5, s * 0.12)
 	var eye_l := c + Vector2(-s * 0.32, -s * 0.08)
 	var eye_r := c + Vector2(s * 0.32, -s * 0.08)
-	draw_circle(eye_l, er, FACE_COLOR)
-	draw_circle(eye_r, er, FACE_COLOR)
-	# Eye sparkle: big highlight + tiny glint.
-	draw_circle(eye_l + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
-	draw_circle(eye_r + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
-	draw_circle(eye_l + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
-	draw_circle(eye_r + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
-	# Cheeks.
-	draw_circle(c + Vector2(-s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
-	draw_circle(c + Vector2(s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
-	# Smile.
-	draw_arc(c + Vector2(0, s * 0.1), s * 0.28, 0.25, PI - 0.25, 16, FACE_COLOR, 3.0)
+	for e: Vector2 in [eye_l, eye_r]:
+		draw_circle(e, er * 2.4, Color(gc, 0.16))
+		draw_circle(e, er * 1.6, Color(gc, 0.35))
+		draw_circle(e, er, gc.lightened(0.3))
+		draw_circle(e, er * 0.45, Color.WHITE)
+	draw_line(c + Vector2(-s * 0.2, s * 0.3), c + Vector2(s * 0.2, s * 0.3), Color(0, 0, 0, 0.6), 3.0, true)
 
 func _sparkle(pos: Vector2, r: float, col: Color) -> void:
 	var pts := PackedVector2Array([
