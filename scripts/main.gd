@@ -452,11 +452,18 @@ func _show_rainbow() -> void:
 
 ## Merge voice blip (pitch rises with tier) + a tiny vibration when enabled.
 func _on_merge_effects(tier: int, _bonus: int) -> void:
+	# Keep device vibration out of the critical merge signal chain. Some
+	# Android builds/drivers can fail inside the native vibration call.
+	# Sound remains optional and is isolated from the model transaction.
+	var sm := get_node_or_null("/root/SoundManager")
+	if sm != null and sm.has_method("play_blip"):
+		call_deferred("_play_merge_blip", tier)
+
+
+func _play_merge_blip(tier: int) -> void:
 	var sm := get_node_or_null("/root/SoundManager")
 	if sm != null and sm.has_method("play_blip"):
 		sm.call("play_blip", tier)
-	if _game_manager != null and _game_manager.settings != null:
-		_game_manager.settings.vibrate()
 
 
 ## New-tier celebrations: Tier 8 gets the full treatment, Tier 7+ a rainbow.
