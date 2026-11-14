@@ -101,6 +101,20 @@ jobs:
             exit 1
           fi
 
+      - name: Diagnostics (what Godot checks before exporting)
+        shell: bash
+        run: |
+          echo "== templates =="; ls -la "$HOME/.local/share/godot/export_templates/4.4.1.stable" | head -40
+          echo "== SDK =="; echo "$ANDROID_HOME"; ls "$ANDROID_HOME"
+          echo "-- platform-tools"; ls "$ANDROID_HOME/platform-tools" | head -5
+          echo "-- cmdline-tools"; ls "$ANDROID_HOME/cmdline-tools" || echo MISSING
+          echo "-- build-tools"; ls "$ANDROID_HOME/build-tools" || echo MISSING
+          echo "-- platforms"; ls "$ANDROID_HOME/platforms" || echo MISSING
+          echo "== editor settings =="; cat "$HOME/.config/godot/editor_settings-4.4.tres"
+          echo "== keystore =="; ls -la "$HOME/.android"
+          echo "== gradle template =="; cat android/.build_version || echo NO_VERSION_FILE; ls android/build | head -20
+          echo "== presets (no secrets) =="; grep -v -i password export_presets.cfg
+
       - name: Export native Android APK
         shell: bash
         run: |
