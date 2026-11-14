@@ -30,6 +30,13 @@ func _ready() -> void:
 	streams["ding"] = _make_chime([1046.5, 1567.98], 0.15, 1, 0.45)
 	streams["unlock"] = _make_chime([523.25, 659.25, 783.99, 1046.5, 1318.51], 0.16, 1, 0.45)
 	streams["click"] = _make_glide(1200.0, 800.0, 0.06, 0, 0.35)
+	# --- Boss Rush (v1.3, Worker C) ---
+	# Low descending saw-ish growl: a triangle glide from 160 Hz down to
+	# 55 Hz over 0.7 s. Played once when a boss spawns.
+	streams["roar"] = _make_glide(160.0, 55.0, 0.7, 1, 0.65)
+	# Winner sounds (v1.3, Worker D): fanfare baked once; blips and combos
+	# are built lazily per tier/level and cached in `streams`.
+	streams["fanfare"] = _make_chime([523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98], 0.15, 1, 0.45)
 
 
 func set_muted(value: bool) -> void:
@@ -58,6 +65,37 @@ func play_unlock() -> void:
 
 func play_click() -> void:
 	_play("click")
+
+
+# --- Boss Rush (v1.3, Worker C) ------------------------------------------------
+# Low roar played when a boss spawns. Procedural (see _ready).
+func play_roar() -> void:
+	_play("roar")
+
+# --- Voice blips + winner sounds (v1.3, Worker D) ---------------------------
+# play_blip(tier): short cute gibberish-style blip — 2 quick sine notes,
+# pitch rising with tier (base 500 + tier x 80 Hz), ~0.09 s total.
+# Call sites (coordinator): on monster spawn and on merge.
+func play_blip(tier: int) -> void:
+	var t := clampi(tier, 1, 8)
+	var key := "blip%d" % t
+	if not streams.has(key):
+		var base := 500.0 + float(t) * 80.0
+		streams[key] = _make_chime([base, base * 1.25], 0.045, 0, 0.5)
+	_play(key)
+
+# play_fanfare(): rising 6-note arpeggio, ~0.9 s, for jackpot / boss win.
+func play_fanfare() -> void:
+	_play("fanfare")
+
+# play_combo(level): short rising chime; pitch rises with the combo level.
+func play_combo(level: int) -> void:
+	var lv := maxi(1, level)
+	var key := "combo%d" % lv
+	if not streams.has(key):
+		var base := 600.0 + float(lv) * 60.0
+		streams[key] = _make_chime([base, base * 1.25, base * 1.5], 0.09, 1, 0.45)
+	_play(key)
 
 
 func get_stream(sound_name: String) -> AudioStreamWAV:

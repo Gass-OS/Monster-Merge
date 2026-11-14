@@ -28,6 +28,7 @@ const ConfettiFXScript = preload("res://scripts/confetti_fx.gd")
 const TileScript = preload("res://scripts/monster_tile.gd")
 
 var manager: MonsterGameManager
+var missions_manager = null  # v1.3 integration: MissionsManager (optional).
 
 var _egg_label: Label
 var _reveal_tile: MonsterTile
@@ -70,6 +71,9 @@ func hatch(instant: bool = false) -> bool:
 		_result_label.text = "Not enough coins! Need 150 🪙"
 		return false
 	manager.save_game()
+	# v1.3 integration: daily-mission progress.
+	if missions_manager != null and missions_manager.has_method("notify_egg_hatched"):
+		missions_manager.notify_egg_hatched()
 	_pending_tier = roll_tier()
 	_sound_pop()
 	if instant:

@@ -13,6 +13,9 @@ signal quit_requested
 signal spin_requested
 signal slots_requested
 signal egg_requested
+signal settings_requested  # v1.3 (Worker A): opens the settings panel.
+signal missions_requested  # v1.3 integration: opens the missions panel.
+signal gift_requested  # v1.3 integration: opens the missions panel (gift card).
 
 const TileScript = preload("res://scripts/monster_tile.gd")
 const BackgroundFXScript = preload("res://scripts/background_fx.gd")
@@ -21,8 +24,11 @@ const PREVIEW_TIERS := [1, 2, 3]
 const PREVIEW_NAMES := ["EGG", "SLIME", "DINO"]
 
 var _ui_manager: MonsterUIManager
+var _settings: SettingsManager = null  # v1.3 (Worker A): set via setup().
+var _bg: BackgroundFX = null  # v1.3 integration: own sky, for theme changes.
 var _menu_layer: CanvasLayer
 var _how_to_overlay: ColorRect = null
+var _about_overlay: ColorRect = null  # v1.3 (Worker A)
 var _sound_button: Button
 var _music_button: Button
 var _muted: bool = false
@@ -35,8 +41,8 @@ func _ready() -> void:
 	add_child(_menu_layer)
 	# Own sky instance: the board's BackgroundFX is a child of the (hidden)
 	# UIManager, so it is hidden too while the menu is up.
-	var bg := BackgroundFXScript.new()
-	_menu_layer.add_child(bg)
+	_bg = BackgroundFXScript.new()
+	_menu_layer.add_child(_bg)
 	_build_layout()
 	var sm := _sound_manager()
 	if sm != null:
@@ -45,19 +51,91 @@ func _ready() -> void:
 	_refresh_music_button()
 
 
-func setup(ui_manager: MonsterUIManager) -> void:
+## v1.3 integration: repaint this menu's sky when the theme changes.
+func apply_theme(theme_id: String) -> void:
+	if _bg != null:
+		_bg.apply_theme(theme_id)
+
+
+## v1.3 integration: rainbow celebration on the menu sky.
+func show_rainbow() -> void:
+	if _bg != null:
+		_bg.show_rainbow()
+
+
+func setup(ui_manager: MonsterUIManager, settings: SettingsManager = null) -> void:
 	_ui_manager = ui_manager
+	_settings = settings
+	# Sync the quick-toggle state with the persisted settings.
+	if _settings != null:
+		_muted = not _settings.sound_enabled
+		_refresh_sound_button()
+		_refresh_music_button()
 
 
-## Closes the topmost menu-owned popup (HOW TO PLAY). Returns true if one
-## was open. The gallery is owned by the UIManager, not the menu — Main
-## closes that one via the ui popup_layer instead.
+## Closes the topmost menu-owned popup (HOW TO PLAY / ABOUT). Returns true
+## if one was open. The gallery is owned by the UIManager, not the menu —
+## Main closes that one via the ui popup_layer instead. The settings panel
+## is owned by Main, not the menu — Main closes it directly.
 func close_top_popup() -> bool:
 	if _how_to_overlay != null and is_instance_valid(_how_to_overlay):
 		_how_to_overlay.queue_free()
 		_how_to_overlay = null
 		return true
+	if _about_overlay != null and is_instance_valid(_about_overlay):
+		_about_overlay.queue_free()
+		_about_overlay = null
+		return true
 	return false
+
+
+## v1.3 (Worker A): shows the About overlay. Closed by its button or by
+## the Android back button (via close_top_popup()).
+func show_about() -> void:
+	_sfx("play_click")
+	if _about_overlay != null and is_instance_valid(_about_overlay):
+		return
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.01, 0.01, 0.03, 0.9)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_menu_layer.add_child(overlay)
+	_about_overlay = overlay
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var frame := PanelContainer.new()
+	frame.add_theme_stylebox_override("panel", _flat_style(Color("#24677b"), 22, Color("#f8d66b"), 5))
+	center.add_child(frame)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_top", 24)
+	margin.add_theme_constant_override("margin_bottom", 24)
+	frame.add_child(margin)
+	var card := VBoxContainer.new()
+	card.custom_minimum_size = Vector2(520, 0)
+	card.add_theme_constant_override("separation", 14)
+	margin.add_child(card)
+	card.add_child(_label("ABOUT", 34, Color("#ffe27b")))
+	card.add_child(_label("Monster Merge", 28, Color.WHITE))
+	card.add_child(_label("Developed by Wael Gharsalli", 22, Color("#ffe27b")))
+	card.add_child(_label("Version 1.3.0", 20, Color("#9fb4d8")))
+	card.add_child(_label("A cheerful monster evolution merge game", 19, Color.WHITE))
+	card.add_child(_label("Built with Godot • Music & art generated in-game", 17, Color("#9fb4d8")))
+	var close := Button.new()
+	close.text = "CLOSE"
+	close.custom_minimum_size.y = 60
+	close.add_theme_font_size_override("font_size", 26)
+	_style_button(close, Color("#2a6b4a"))
+	close.pressed.connect(_close_about)
+	card.add_child(close)
+
+
+func _close_about() -> void:
+	_sfx("play_click")
+	if _about_overlay != null and is_instance_valid(_about_overlay):
+		_about_overlay.queue_free()
+		_about_overlay = null
 
 
 func _build_layout() -> void:
@@ -137,17 +215,40 @@ func _build_layout() -> void:
 	egg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	egg.pressed.connect(func() -> void: egg_requested.emit())
 	fun_row.add_child(egg)
+	# v1.3 integration: missions + daily gift row (panel lives in the UI
+	# manager's popup_layer, which renders above the menu like the gallery).
+	var quest_row := HBoxContainer.new()
+	quest_row.add_theme_constant_override("separation", 10)
+	buttons.add_child(quest_row)
+	var missions_btn := _menu_button("📋   MISSIONS", 64, 20, Color("#6a4a9e"))
+	missions_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	missions_btn.pressed.connect(func() -> void: missions_requested.emit())
+	quest_row.add_child(missions_btn)
+	var gift_btn := _menu_button("🎁   DAILY GIFT", 64, 20, Color("#b8860b"))
+	gift_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gift_btn.pressed.connect(func() -> void: gift_requested.emit())
+	quest_row.add_child(gift_btn)
 	_music_button = _menu_button("🎵   MUSIC: ON", 68, 26, Color("#1d2a44"))
 	_music_button.pressed.connect(_on_music_pressed)
 	buttons.add_child(_music_button)
 	_sound_button = _menu_button("🔊   SOUND: ON", 68, 26, Color("#1d2a44"))
 	_sound_button.pressed.connect(_on_sound_pressed)
 	buttons.add_child(_sound_button)
+	# v1.3 (Worker A): settings panel (also reachable from the pause menu).
+	var settings_btn := _menu_button("⚙️   SETTINGS", 68, 26, Color("#1d2a44"))
+	settings_btn.pressed.connect(_on_settings_pressed)
+	buttons.add_child(settings_btn)
 	var quit := _menu_button("🚪   QUIT", 68, 26, Color("#8a1c27"))
 	quit.pressed.connect(_on_quit_pressed)
 	buttons.add_child(quit)
+	# v1.3 (Worker A): small About button.
+	var about := _menu_button("ℹ️   ABOUT", 52, 20, Color("#1d2a44"))
+	about.pressed.connect(show_about)
+	buttons.add_child(about)
 
-	layout.add_child(_label("Your progress saves automatically  •  v1.2", 15, Color("#7f8fae")))
+	# v1.3 (Worker A): developer credit in the menu footer.
+	layout.add_child(_label("Developed by Wael Gharsalli", 16, Color("#ffe27b")))
+	layout.add_child(_label("Your progress saves automatically  •  v1.3", 15, Color("#7f8fae")))
 
 
 func _on_play_pressed() -> void:
@@ -210,21 +311,36 @@ func _close_how_to() -> void:
 		_how_to_overlay = null
 
 
+func _on_settings_pressed() -> void:
+	_sfx("play_click")
+	settings_requested.emit()
+
+
+# v1.3 (Worker A): the quick toggles write through the SettingsManager when
+# one is attached, so the choice persists; otherwise they fall back to the
+# old direct-manager behaviour.
 func _on_sound_pressed() -> void:
 	_sfx("play_click")
-	var sm := _sound_manager()
-	if sm != null and sm.has_method("toggle_mute"):
-		_muted = bool(sm.call("toggle_mute"))
+	if _settings != null:
+		_settings.set_sound_enabled(not _settings.sound_enabled)
+		_muted = not _settings.sound_enabled
 	else:
-		_muted = not _muted
+		var sm := _sound_manager()
+		if sm != null and sm.has_method("toggle_mute"):
+			_muted = bool(sm.call("toggle_mute"))
+		else:
+			_muted = not _muted
 	_refresh_sound_button()
 
 
 func _on_music_pressed() -> void:
 	_sfx("play_click")
-	var mm := get_node_or_null("/root/MusicManager")
-	if mm != null and mm.has_method("toggle_music"):
-		mm.toggle_music()
+	if _settings != null:
+		_settings.set_music_enabled(not _settings.music_enabled)
+	else:
+		var mm := get_node_or_null("/root/MusicManager")
+		if mm != null and mm.has_method("toggle_music"):
+			mm.toggle_music()
 	_refresh_music_button()
 
 
@@ -236,10 +352,13 @@ func _on_quit_pressed() -> void:
 func _refresh_music_button() -> void:
 	if _music_button == null:
 		return
-	var mm := get_node_or_null("/root/MusicManager")
 	var on := true
-	if mm != null and "music_enabled" in mm:
-		on = bool(mm.music_enabled)
+	if _settings != null:
+		on = _settings.music_enabled
+	else:
+		var mm := get_node_or_null("/root/MusicManager")
+		if mm != null and "music_enabled" in mm:
+			on = bool(mm.music_enabled)
 	_music_button.text = "🎵   MUSIC: ON" if on else "🔇   MUSIC: OFF"
 
 

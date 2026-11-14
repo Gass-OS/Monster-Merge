@@ -17,6 +17,9 @@ class_name LuckySpin
 ##   var spin := LuckySpin.new()
 ##   add_child(spin); spin.setup(game_manager); spin.open()
 
+## v1.3 integration: missions wiring (set by Main) + win signal.
+signal prize_won(kind: String, value: int)
+
 const SPIN_COST := 100
 const PASSIVE_2X_SECONDS := 60.0
 const ConfettiFXScript = preload("res://scripts/confetti_fx.gd")
@@ -42,6 +45,7 @@ const PRIZES := [
 ]
 
 var manager: MonsterGameManager
+var missions_manager = null  # v1.3 integration: MissionsManager (optional).
 var spinning: bool = false
 
 var _wheel: WheelView
@@ -85,6 +89,9 @@ func do_spin() -> bool:
 	if cost == 0:
 		manager.mark_free_spin_used()
 	manager.save_game()
+	# v1.3 integration: daily-mission progress.
+	if missions_manager != null and missions_manager.has_method("notify_wheel_spun"):
+		missions_manager.notify_wheel_spun()
 	_result_label.text = "Spinning… 🎡"
 	_spin_button.disabled = true
 	spinning = true
@@ -115,6 +122,10 @@ func apply_prize(prize_index: int) -> String:
 			message = "TRY AGAIN — so close! Spin once more 🍀"
 	_result_label.text = message
 	manager.save_game()
+	# v1.3 integration: win signal (Main adds fanfare/voice) + jackpot mission.
+	prize_won.emit(kind, value)
+	if kind == "coins" and value >= 1000 and missions_manager != null and missions_manager.has_method("notify_jackpot_won"):
+		missions_manager.notify_jackpot_won()
 	if kind == "coins" and value >= 500:
 		_sound_unlock()
 		_confetti()

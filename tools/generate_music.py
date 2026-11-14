@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Procedural cheerful soundtrack for Monster Merge (v1.2, Worker D).
+"""Procedural cheerful soundtrack for Monster Merge (v1.3, Worker D).
 
-Generates 2-3 loopable music tracks as .wav (mono 22050 Hz, 16-bit) using
-only the Python stdlib (wave + math), then encodes them to .ogg with ffmpeg
-when available (preferred: much smaller). Each track is a simple cheerful
-melody + bass + soft drum/hat pattern, built on exact bar boundaries so the
-end connects cleanly back to the start (loopable).
+Generates 5 loopable music tracks as .ogg (STEREO 44100 Hz, 16-bit) using
+numpy (vectorised synthesis — fast) + ffmpeg libvorbis encoding. Each
+track is ~2 minutes: a cheerful melody + bass + soft drum/hat pattern,
+built on exact bar boundaries so the end connects cleanly back to the
+start (loopable). The right channel is the left channel delayed ~8 ms
+(Haas effect), so the file is genuinely stereo, not dual mono.
 
 Usage:  python3 tools/generate_music.py
-Output: assets/music/track1.ogg (or .wav fallback) etc.
+Output: assets/music/track1.ogg .. track5.ogg
+Requires: numpy, ffmpeg.
 """
 import math
 import os
@@ -18,7 +20,11 @@ import subprocess
 import sys
 import wave
 
-SAMPLE_RATE = 22050
+import numpy as np
+
+SAMPLE_RATE = 44100
+CHANNELS = 2
+HAAS_DELAY_SAMPLES = 350  # ~8 ms at 44.1 kHz
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 OUT_DIR = os.path.join(ROOT, "assets", "music")
@@ -32,6 +38,8 @@ SCALES = {
     "C": [60, 62, 64, 67, 69, 72, 74, 76, 79, 81],
     "G": [55, 59, 62, 64, 67, 71, 74, 76, 79, 83],
     "F": [53, 57, 60, 62, 65, 69, 72, 74, 77, 81],
+    "D": [62, 64, 66, 69, 71, 74, 76, 78, 81, 83],
+    "Am": [57, 60, 62, 64, 67, 69, 72, 74, 76, 79],
 }
 
 TRACKS = [
@@ -39,7 +47,7 @@ TRACKS = [
         "name": "track1",
         "title": "Sunny Morning",
         "bpm": 116,
-        "bars": 32,
+        "bars": 58,  # 58 bars @ 116 bpm = 120.0 s
         "scale": "C",
         "chords": [(48, 52, 55), (43, 47, 50), (45, 48, 52), (41, 45, 48)],
         # C, G, Am, F (root positions, MIDI)
@@ -49,7 +57,7 @@ TRACKS = [
         "name": "track2",
         "title": "Bouncy Buddies",
         "bpm": 124,
-        "bars": 32,
+        "bars": 62,  # 120.0 s
         "scale": "G",
         "chords": [(43, 47, 50), (38, 42, 45), (40, 43, 47), (48, 52, 55)],
         # G, D, Em, C
@@ -59,11 +67,31 @@ TRACKS = [
         "name": "track3",
         "title": "Starlight Parade",
         "bpm": 108,
-        "bars": 32,
+        "bars": 54,  # 120.0 s
         "scale": "F",
         "chords": [(41, 45, 48), (48, 52, 55), (50, 53, 57), (46, 50, 53)],
         # F, C, Dm, Bb
         "seed": 37,
+    },
+    {
+        "name": "track4",
+        "title": "Candy Carnival",
+        "bpm": 132,
+        "bars": 66,  # 120.0 s
+        "scale": "D",
+        "chords": [(50, 54, 57), (43, 47, 50), (45, 49, 52), (47, 51, 54)],
+        # D, G, A, Bm
+        "seed": 51,
+    },
+    {
+        "name": "track5",
+        "title": "Dragon Dance Party",
+        "bpm": 100,
+        "bars": 50,  # 120.0 s
+        "scale": "Am",
+        "chords": [(45, 48, 52), (41, 45, 48), (48, 52, 55), (43, 47, 50)],
+        # Am, F, C, G
+        "seed": 67,
     },
 ]
 
@@ -74,51 +102,51 @@ def render_track(cfg):
     bar = beat * 4
     total = cfg["bars"] * bar
     n = int(total * SAMPLE_RATE)
-    buf = [0.0] * n
+    buf = np.zeros(n, dtype=np.float64)
     rng = random.Random(cfg["seed"])
     scale = SCALES[cfg["scale"]]
 
     def add_tone(freq, start, dur, vol, wave="sine", decay=3.0):
-        """Add a single note with exponential decay envelope."""
+        """Add a single note with exponential decay envelope (vectorised)."""
         i0 = int(start * SAMPLE_RATE)
         i1 = min(n, int((start + dur) * SAMPLE_RATE))
         if i1 <= i0:
             return
-        phase = 0.0
-        step = 2.0 * math.pi * freq / SAMPLE_RATE
-        for i in range(i0, i1):
-            t = (i - i0) / SAMPLE_RATE
-            frac = t / dur
-            env = math.exp(-decay * frac) * min(1.0, t / 0.01)
-            if wave == "sine":
-                s = math.sin(phase)
-            elif wave == "triangle":
-                s = 2.0 * abs(2.0 * (phase / (2.0 * math.pi)
-                             - math.floor(phase / (2.0 * math.pi) + 0.5))) - 1.0
-            else:  # soft square (clipped sine mix)
-                s = math.tanh(2.0 * math.sin(phase))
-            buf[i] += s * vol * env
-            phase += step
+        t = np.arange(i1 - i0, dtype=np.float64) / SAMPLE_RATE
+        frac = t / dur
+        env = np.exp(-decay * frac) * np.minimum(1.0, t / 0.01)
+        phase = 2.0 * math.pi * freq * t
+        if wave == "sine":
+            s = np.sin(phase)
+        elif wave == "triangle":
+            s = 2.0 * np.abs(2.0 * (phase / (2.0 * math.pi)
+                             - np.floor(phase / (2.0 * math.pi) + 0.5))) - 1.0
+        else:  # soft square (clipped sine mix)
+            s = np.tanh(2.0 * np.sin(phase))
+        buf[i0:i1] += s * vol * env
 
     def add_kick(start, dur=0.18, vol=0.5):
         i0 = int(start * SAMPLE_RATE)
         i1 = min(n, int((start + dur) * SAMPLE_RATE))
-        phase = 0.0
-        for i in range(i0, i1):
-            t = (i - i0) / SAMPLE_RATE
-            frac = t / dur
-            freq = 150.0 + (40.0 - 150.0) * frac
-            phase += 2.0 * math.pi * freq / SAMPLE_RATE
-            env = (1.0 - frac) ** 2
-            buf[i] += math.sin(phase) * vol * env
+        if i1 <= i0:
+            return
+        m = i1 - i0
+        frac = np.arange(m, dtype=np.float64) / m
+        freq = 150.0 + (40.0 - 150.0) * frac
+        phase = np.cumsum(2.0 * math.pi * freq / SAMPLE_RATE)
+        env = (1.0 - frac) ** 2
+        buf[i0:i1] += np.sin(phase) * vol * env
 
     def add_hat(start, dur=0.05, vol=0.12):
         i0 = int(start * SAMPLE_RATE)
         i1 = min(n, int((start + dur) * SAMPLE_RATE))
-        for i in range(i0, i1):
-            t = (i - i0) / SAMPLE_RATE
-            env = 1.0 - t / dur
-            buf[i] += (rng.random() * 2.0 - 1.0) * vol * env * 0.5
+        if i1 <= i0:
+            return
+        m = i1 - i0
+        t = np.arange(m, dtype=np.float64) / SAMPLE_RATE
+        env = 1.0 - t / dur
+        noise = np.array([rng.random() * 2.0 - 1.0 for _ in range(m)])
+        buf[i0:i1] += noise * vol * env * 0.5
 
     # --- Compose bar by bar -------------------------------------------------
     melody_note = len(scale) // 2
@@ -160,15 +188,16 @@ def render_track(cfg):
 
     # Gentle 0.05 s fade on the very last samples so the loop point is click-free.
     fade = int(0.05 * SAMPLE_RATE)
-    for i in range(fade):
-        buf[n - 1 - i] *= (fade - i) / fade
-    # Normalise to a safe peak.
-    peak = max(max(buf), -min(buf), 1e-6)
+    buf[-fade:] *= np.linspace(1.0, 0.0, fade)
+    # Stereo: right channel = left delayed ~8 ms (Haas effect).
+    left = buf
+    right = np.concatenate([np.zeros(HAAS_DELAY_SAMPLES), buf[:-HAAS_DELAY_SAMPLES]]) * 0.95
+    peak = max(np.max(np.abs(left)), np.max(np.abs(right)), 1e-6)
     gain = 0.85 / peak
-    frames = b"".join(
-        struct.pack("<h", max(-32767, min(32767, int(s * gain * 32767))))
-        for s in buf)
-    return frames, total
+    stereo = np.empty((n, 2), dtype=np.int16)
+    stereo[:, 0] = np.clip(left * gain * 32767, -32767, 32767).astype(np.int16)
+    stereo[:, 1] = np.clip(right * gain * 32767, -32767, 32767).astype(np.int16)
+    return stereo.tobytes(), total
 
 
 def encode_ogg(wav_path, ogg_path):
@@ -189,7 +218,7 @@ def main():
         frames, total = render_track(cfg)
         wav_path = os.path.join(OUT_DIR, cfg["name"] + ".wav")
         with wave.open(wav_path, "wb") as w:
-            w.setnchannels(1)
+            w.setnchannels(CHANNELS)
             w.setsampwidth(2)
             w.setframerate(SAMPLE_RATE)
             w.writeframes(frames)

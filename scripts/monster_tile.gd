@@ -32,11 +32,22 @@ var _match_highlight := false
 var _drop_highlight := false
 var _drop_valid := true
 var _pulse_t := 0.0
+# --- Monster life (v1.3, Worker D; additive, cheap _draw/_process only) ----
+var _anim_t := 0.0
+var _bob_phase := 0.0
+var _blink_timer := 3.0      # counts down to the next blink
+var _blink_left := 0.0       # > 0 while the eyes are closed
+var _blinking := false
+var _wiggle_tween: Tween
+var _pop_tween: Tween
 
 func _ready() -> void:
 	if custom_minimum_size == Vector2.ZERO:
 		custom_minimum_size = Vector2(120, 136)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	# Different phase per tile so the board doesn't bob in sync.
+	_bob_phase = float(tile_index if tile_index >= 0 else randi() % 16) * 0.9
+	_blink_timer = randf_range(2.0, 5.0)
 	queue_redraw()
 
 func set_monster(new_tier: int) -> void:
@@ -48,10 +59,70 @@ func set_silhouette(value: bool) -> void:
 	queue_redraw()
 
 func _process(delta: float) -> void:
+	_anim_t += delta
+	_update_blink(delta)
 	# Pulse the selection / match / drop rings while any of them is shown.
 	if _selected or _match_highlight or _drop_highlight:
 		_pulse_t += delta
+	# Idle bob + blink need a redraw while a monster is shown; empty tiles
+	# and highlight-only frames are the only ones that can skip it.
+	if tier > 0:
 		queue_redraw()
+	elif _selected or _match_highlight or _drop_highlight:
+		queue_redraw()
+
+func _update_blink(delta: float) -> void:
+	if _blinking:
+		_blink_left -= delta
+		if _blink_left <= 0.0:
+			_blinking = false
+			_blink_timer = randf_range(2.0, 5.0)
+	else:
+		_blink_timer -= delta
+		if _blink_timer <= 0.0:
+			_blinking = true
+			_blink_left = 0.12  # eyes closed for ~0.12 s
+
+## True while the eyes are drawn closed. The test scene reads this to
+## prove the blink state cycles without watching pixels.
+func is_blinking() -> bool:
+	return _blinking
+
+func _bob_offset() -> float:
+	if tier <= 0:
+		return 0.0
+	return sin(_anim_t * 1.8 + _bob_phase) * 3.0
+
+## Happy wiggle when tapped: quick side-to-side rotation wobble.
+## Called from _finish_drag on a tap; the coordinator may also call it.
+func play_wiggle() -> void:
+	if tier <= 0 or not is_inside_tree():
+		return
+	pivot_offset = size * 0.5
+	if _wiggle_tween != null and _wiggle_tween.is_valid():
+		_wiggle_tween.kill()
+	rotation = 0.0
+	_wiggle_tween = create_tween()
+	_wiggle_tween.tween_property(self, "rotation", 0.12, 0.07)
+	_wiggle_tween.tween_property(self, "rotation", -0.10, 0.09)
+	_wiggle_tween.tween_property(self, "rotation", 0.05, 0.07)
+	_wiggle_tween.tween_property(self, "rotation", 0.0, 0.08)
+
+## Merge squash-and-stretch, two steps: squash wide, then stretch tall,
+## then settle. Replaces / complements the grid's single scale bounce;
+## the coordinator calls this on the merged tile instead of (or after)
+## the grid tween — both are guarded, calling twice is harmless.
+func play_merge_pop() -> void:
+	if tier <= 0 or not is_inside_tree():
+		return
+	pivot_offset = size * 0.5
+	if _pop_tween != null and _pop_tween.is_valid():
+		_pop_tween.kill()
+	scale = Vector2.ONE
+	_pop_tween = create_tween()
+	_pop_tween.tween_property(self, "scale", Vector2(1.22, 0.78), 0.09)
+	_pop_tween.tween_property(self, "scale", Vector2(0.92, 1.10), 0.11).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_pop_tween.tween_property(self, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 # --- Tap-to-merge visual state (set by the grid) ----------------------------
 
@@ -120,6 +191,8 @@ func _finish_drag(global_position: Vector2) -> void:
 	else:
 		# A press + release without moving is a tap, even on an empty tile
 		# (the grid uses empty-tile taps to clear the selection).
+		if tier > 0:
+			play_wiggle()
 		tile_tapped.emit(tile_index)
 
 func _glow_color() -> Color:
@@ -143,7 +216,7 @@ func _draw() -> void:
 		draw_circle(size * 0.5, 13.0, Color("#b9dedb"))
 		_draw_highlights(gc)
 		return
-	var center := Vector2(size.x * 0.5, size.y * 0.47)
+	var center := Vector2(size.x * 0.5, size.y * 0.47 + _bob_offset())
 	var s := minf(size.x, size.y) * 0.31
 	# Soft coloured aura behind the creature (kept from v2, subtle and light).
 	if not was_sil:
@@ -268,13 +341,18 @@ func _face(c: Vector2, s: float) -> void:
 	var er := maxf(3.5, s * 0.13)
 	var eye_l := c + Vector2(-s * 0.32, -s * 0.08)
 	var eye_r := c + Vector2(s * 0.32, -s * 0.08)
-	draw_circle(eye_l, er, FACE_COLOR)
-	draw_circle(eye_r, er, FACE_COLOR)
-	# Eye sparkle: big highlight + tiny glint.
-	draw_circle(eye_l + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
-	draw_circle(eye_r + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
-	draw_circle(eye_l + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
-	draw_circle(eye_r + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
+	if _blinking:
+		# Eyes closed: short horizontal lines instead of dots.
+		draw_line(eye_l + Vector2(-er, 0), eye_l + Vector2(er, 0), FACE_COLOR, 3.0, true)
+		draw_line(eye_r + Vector2(-er, 0), eye_r + Vector2(er, 0), FACE_COLOR, 3.0, true)
+	else:
+		draw_circle(eye_l, er, FACE_COLOR)
+		draw_circle(eye_r, er, FACE_COLOR)
+		# Eye sparkle: big highlight + tiny glint.
+		draw_circle(eye_l + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
+		draw_circle(eye_r + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
+		draw_circle(eye_l + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
+		draw_circle(eye_r + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
 	# Cheeks.
 	draw_circle(c + Vector2(-s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
 	draw_circle(c + Vector2(s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
@@ -445,10 +523,14 @@ func _robo_face(c: Vector2, s: float) -> void:
 	visor.bg_color = Color("#1d2b3a")
 	visor.set_corner_radius_all(8)
 	draw_style_box(visor, Rect2(c + Vector2(-s * 0.55, -s * 0.35), Vector2(s * 1.1, s * 0.42)))
-	draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
-	draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
-	draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
-	draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
+	if _blinking:
+		draw_line(c + Vector2(-s * 0.40, -s * 0.14), c + Vector2(-s * 0.16, -s * 0.14), Color("#54e0ff"), 3.0, true)
+		draw_line(c + Vector2(s * 0.16, -s * 0.14), c + Vector2(s * 0.40, -s * 0.14), Color("#54e0ff"), 3.0, true)
+	else:
+		draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
+		draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
+		draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
+		draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
 	# Grille mouth.
 	for i in range(3):
 		var mx := -s * 0.24 + float(i) * s * 0.24

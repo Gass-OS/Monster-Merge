@@ -44,6 +44,19 @@ TIERS = [
 
 BG_DECO = ["#ffffff", "#ffd93d", "#ff8fab"]
 
+# v1.3 alt variants: a second sky palette per tier for tierN_alt.png
+# (second pose / different background — same creature, new scene).
+ALT_SKIES = [
+    ((255, 190, 220), (255, 240, 200)),  # egg: pink sunrise
+    ((190, 230, 255), (220, 255, 220)),  # slime: fresh morning
+    ((255, 220, 160), (255, 250, 210)),  # dino: golden field
+    ((255, 150, 150), (255, 210, 170)),  # wyrm: ember dusk
+    ((255, 210, 240), (200, 220, 255)),  # phoenix: candy dawn
+    ((210, 200, 255), (255, 230, 250)),  # unicorn: lavender dream
+    ((170, 220, 255), (230, 245, 255)),  # robo: steel sky
+    ((200, 160, 255), (255, 190, 230)),  # dragon: cosmic dusk
+]
+
 
 def font(size):
     for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -82,14 +95,14 @@ def star(d, cx, cy, r, color):
     d.polygon(pts, fill=color)
 
 
-def background(d, w, top, bottom, rng):
+def background(d, w, top, bottom, rng, variant=False):
     # Vertical gradient sky.
     for y in range(w):
         t = y / w
         col = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3))
         d.line([(0, y), (w, y)], fill=col)
-    # Sun with rays.
-    sx, sy, sr = w * 0.82, w * 0.16, w * 0.085
+    # Sun with rays (variant: sun on the left, smaller, for a new scene).
+    sx, sy, sr = (w * 0.82, w * 0.16, w * 0.085) if not variant else (w * 0.16, w * 0.14, w * 0.065)
     for i in range(12):
         ang = i * math.pi / 6
         d.line([(sx + math.cos(ang) * (sr + 12), sy + math.sin(ang) * (sr + 12)),
@@ -105,19 +118,29 @@ def background(d, w, top, bottom, rng):
             ellipse(d, [cx + dx - r, cy + dy - r, cx + dx + r, cy + dy + r],
                     (255, 255, 255))
     # Rolling green hill + ground shadow handled by creature draw.
-    d.ellipse([-w * 0.2, w * 0.78, w * 1.2, w * 1.25], fill=(139, 214, 120))
-    d.ellipse([-w * 0.2, w * 0.80, w * 1.2, w * 1.22], fill=(110, 200, 95))
+    hill = (139, 214, 120) if not variant else (255, 190, 210)
+    hill2 = (110, 200, 95) if not variant else (240, 160, 195)
+    d.ellipse([-w * 0.2, w * 0.78, w * 1.2, w * 1.25], fill=hill)
+    d.ellipse([-w * 0.2, w * 0.80, w * 1.2, w * 1.22], fill=hill2)
+    if variant:
+        # Extra hearts + stars floating in the alt scene.
+        for (hx, hy, hr) in [(w * 0.85, w * 0.30, 26), (w * 0.78, w * 0.55, 18),
+                             (w * 0.12, w * 0.62, 20)]:
+            d.ellipse([hx - hr, hy - hr, hx + hr, hy + hr], fill=(255, 120, 170))
+            d.polygon([(hx - hr, hy), (hx + hr, hy), (hx, hy + hr * 1.4)],
+                      fill=(255, 120, 170))
 
 
-def banner(d, w, name, tier):
+def banner(d, w, name, tier, variant=False):
     # Name banner at the bottom + tier badge top-left.
     bw, bh = w * 0.86, w * 0.115
     bx, by = (w - bw) / 2, w * 0.845
     d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=28,
                         fill=(255, 248, 223), outline=(255, 201, 60), width=6)
     f = font(int(w * 0.048))
-    tw = d.textlength(name, font=f)
-    d.text(((w - tw) / 2, by + bh * 0.16), name, font=f, fill=(39, 55, 82))
+    label_name = name + ("  ★ ALT" if variant else "")
+    tw = d.textlength(label_name, font=f)
+    d.text(((w - tw) / 2, by + bh * 0.16), label_name, font=f, fill=(39, 55, 82))
     # Tier badge.
     badge_r = w * 0.075
     cx, cy = w * 0.10, w * 0.10
@@ -135,9 +158,15 @@ def banner(d, w, name, tier):
         sparkle(d, x, y, rng.uniform(8, 20), (255, 255, 255))
 
 
-def draw_creature(d, w, tier, body, dark, light, belly):
+def draw_creature(d, w, tier, body, dark, light, belly, variant=False):
+    # Variant pose: creature sits slightly right and larger, eyes looking
+    # to the side (look offset), for a visibly different second view.
     cx, cy = w * 0.5, w * 0.52
     s = w * 0.30  # creature scale
+    if variant:
+        cx += w * 0.04
+        s *= 1.06
+    look = (0, 0) if not variant else (10, 0)
     # Ground shadow.
     d.ellipse([cx - s * 0.85, cy + s * 0.78, cx + s * 0.85, cy + s * 0.98],
               fill=(0, 0, 0, 60) if d else (60, 90, 60))
@@ -159,8 +188,8 @@ def draw_creature(d, w, tier, body, dark, light, belly):
                 (110, 205, 90))
         ellipse(d, [cx - s * 0.02, cy - s * 1.22, cx + s * 0.3, cy - s * 0.98],
                 (110, 205, 90))
-        eye(d, cx - s * 0.25, cy + s * 0.05, s * 0.13)
-        eye(d, cx + s * 0.25, cy + s * 0.05, s * 0.13)
+        eye(d, cx - s * 0.25, cy + s * 0.05, s * 0.13, look)
+        eye(d, cx + s * 0.25, cy + s * 0.05, s * 0.13, look)
         d.arc([cx - s * 0.25, cy + s * 0.25, cx + s * 0.25, cy + s * 0.55],
               20, 160, fill=(38, 55, 76), width=8)
     elif tier == 2:  # Slime blob.
@@ -173,8 +202,8 @@ def draw_creature(d, w, tier, body, dark, light, belly):
                 belly)
         ellipse(d, [cx - s * 0.55, cy - s * 0.55, cx - s * 0.1, cy - s * 0.1],
                 light)
-        eye(d, cx - s * 0.28, cy - s * 0.05, s * 0.16)
-        eye(d, cx + s * 0.28, cy - s * 0.05, s * 0.16)
+        eye(d, cx - s * 0.28, cy - s * 0.05, s * 0.16, look)
+        eye(d, cx + s * 0.28, cy - s * 0.05, s * 0.16, look)
         d.arc([cx - s * 0.28, cy + s * 0.2, cx + s * 0.28, cy + s * 0.55],
               20, 160, fill=(38, 55, 76), width=9)
         ellipse(d, [cx - s * 0.6, cy + s * 0.15, cx - s * 0.4, cy + s * 0.3],
@@ -193,8 +222,8 @@ def draw_creature(d, w, tier, body, dark, light, belly):
                        (cx + fx * s, cy - s * 1.12),
                        (cx + fx * s + s * 0.12, cy - s * 0.85)],
                       fill=light)
-        eye(d, cx - s * 0.18, cy - s * 0.6, s * 0.12)
-        eye(d, cx + s * 0.18, cy - s * 0.6, s * 0.12)
+        eye(d, cx - s * 0.18, cy - s * 0.6, s * 0.12, look)
+        eye(d, cx + s * 0.18, cy - s * 0.6, s * 0.12, look)
         d.arc([cx - s * 0.2, cy - s * 0.4, cx + s * 0.2, cy - s * 0.15],
               20, 160, fill=(38, 55, 76), width=8)
         # Tail + tiny arms.
@@ -219,8 +248,8 @@ def draw_creature(d, w, tier, body, dark, light, belly):
                    (cx - s * 0.05, cy - s * 0.8)], fill=dark)
         d.polygon([(cx + s * 0.05, cy - s * 0.8), (cx + s * 0.2, cy - s * 1.15),
                    (cx + s * 0.35, cy - s * 0.8)], fill=dark)
-        eye(d, cx - s * 0.2, cy - s * 0.55, s * 0.13)
-        eye(d, cx + s * 0.2, cy - s * 0.55, s * 0.13)
+        eye(d, cx - s * 0.2, cy - s * 0.55, s * 0.13, look)
+        eye(d, cx + s * 0.2, cy - s * 0.55, s * 0.13, look)
         # Flame breath.
         for (fx, fy, fr, col) in [(0.55, -0.35, 0.22, (255, 200, 60)),
                                   (0.75, -0.3, 0.16, (255, 140, 40)),
@@ -246,8 +275,8 @@ def draw_creature(d, w, tier, body, dark, light, belly):
                       fill=(255, 120, 40))
         ellipse(d, [cx - s * 0.45, cy - s * 0.75, cx - s * 0.05, cy - s * 0.35],
                 light)
-        eye(d, cx - s * 0.16, cy - s * 0.6, s * 0.12)
-        eye(d, cx + s * 0.16, cy - s * 0.6, s * 0.12)
+        eye(d, cx - s * 0.16, cy - s * 0.6, s * 0.12, look)
+        eye(d, cx + s * 0.16, cy - s * 0.6, s * 0.12, look)
         d.polygon([(cx - s * 0.08, cy - s * 0.35), (cx + s * 0.08, cy - s * 0.35),
                    (cx, cy - s * 0.2)], fill=(255, 140, 40))
         # Tail feathers.
@@ -276,8 +305,8 @@ def draw_creature(d, w, tier, body, dark, light, belly):
                    (cx - s * 0.18, cy - s * 0.95)], fill=body, outline=dark)
         d.polygon([(cx + s * 0.35, cy - s * 0.85), (cx + s * 0.42, cy - s * 1.12),
                    (cx + s * 0.18, cy - s * 0.95)], fill=body, outline=dark)
-        eye(d, cx - s * 0.17, cy - s * 0.58, s * 0.13)
-        eye(d, cx + s * 0.17, cy - s * 0.58, s * 0.13)
+        eye(d, cx - s * 0.17, cy - s * 0.58, s * 0.13, look)
+        eye(d, cx + s * 0.17, cy - s * 0.58, s * 0.13, look)
         d.arc([cx - s * 0.2, cy - s * 0.38, cx + s * 0.2, cy - s * 0.12],
               20, 160, fill=(38, 55, 76), width=8)
         # Legs.
@@ -342,8 +371,8 @@ def draw_creature(d, w, tier, body, dark, light, belly):
                    (cx - s * 0.3, cy - s * 0.95)], fill=light)
         d.polygon([(cx + s * 0.45, cy - s * 0.8), (cx + s * 0.7, cy - s * 1.1),
                    (cx + s * 0.3, cy - s * 0.95)], fill=light)
-        eye(d, cx - s * 0.19, cy - s * 0.58, s * 0.13)
-        eye(d, cx + s * 0.19, cy - s * 0.58, s * 0.13)
+        eye(d, cx - s * 0.19, cy - s * 0.58, s * 0.13, look)
+        eye(d, cx + s * 0.19, cy - s * 0.58, s * 0.13, look)
         # Starry belly spots + tail.
         for (sx, sy, r) in [(-0.2, 0.35, 0.07), (0.15, 0.5, 0.06), (0.0, 0.2, 0.05)]:
             star(d, cx + sx * s, cy + sy * s, r * s, (255, 240, 150))
@@ -365,6 +394,17 @@ def main():
         path = os.path.join(OUT_DIR, f"tier{tier}.png")
         img.save(path, "PNG", optimize=True)
         print(f"tier{tier}: {name} -> {path} ({os.path.getsize(path)} bytes)")
+        # v1.3 alt variant: second pose / different background per tier.
+        alt_top, alt_bot = ALT_SKIES[i]
+        img2 = Image.new("RGB", (w, w))
+        d2 = ImageDraw.Draw(img2, "RGBA")
+        background(d2, w, alt_top, alt_bot, random.Random(tier + 100), variant=True)
+        draw_creature(d2, w, tier, body, dark, light, belly, variant=True)
+        banner(d2, w, name, tier, variant=True)
+        img2 = img2.resize((SIZE, SIZE), Image.LANCZOS)
+        alt_path = os.path.join(OUT_DIR, f"tier{tier}_alt.png")
+        img2.save(alt_path, "PNG", optimize=True)
+        print(f"tier{tier} alt: {name} -> {alt_path} ({os.path.getsize(alt_path)} bytes)")
 
 
 if __name__ == "__main__":

@@ -22,8 +22,10 @@ const TRACK_FILES := [
 	"res://assets/music/track1.ogg",
 	"res://assets/music/track2.ogg",
 	"res://assets/music/track3.ogg",
+	"res://assets/music/track4.ogg",
+	"res://assets/music/track5.ogg",
 ]
-const TRACK_NAMES := ["Sunny Morning", "Bouncy Buddies", "Starlight Parade"]
+const TRACK_NAMES := ["Sunny Morning", "Bouncy Buddies", "Starlight Parade", "Candy Carnival", "Dragon Dance Party"]
 const VOLUME_DB := -14.0  # Gentle: music sits under the sound effects.
 
 var music_enabled: bool = true
@@ -77,6 +79,13 @@ func set_music_enabled(value: bool) -> void:
 		play()
 	else:
 		stop()
+
+## v1.3: music volume for the settings worker (SettingsManager calls this
+## guarded via has_method; 1.0 = full). Relative to VOLUME_DB.
+func set_volume(value: float) -> void:
+	var v := clampf(value, 0.0, 1.0)
+	if _player != null:
+		_player.volume_db = VOLUME_DB if v >= 0.999 else (-80.0 if v <= 0.001 else VOLUME_DB + linear_to_db(v))
 
 func is_playing() -> bool:
 	if _headless or _player == null:

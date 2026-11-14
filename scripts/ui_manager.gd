@@ -7,6 +7,8 @@ const BackgroundFXScript = preload("res://scripts/background_fx.gd")
 const RingBurstScript = preload("res://scripts/ring_burst.gd")
 const ConfettiFXScript = preload("res://scripts/confetti_fx.gd")
 const StarGlowScript = preload("res://scripts/star_glow.gd")
+# --- v1.3 Missions / Daily Gift / Achievements (Worker B) -------------------
+const MissionsManagerScript = preload("res://scripts/missions_manager.gd")
 const NAMES := ["Blue Spotted Egg", "Cute Green Slime", "Baby Green Dino", "Winged Flame Wyrm", "Golden Phoenix", "Crystal Unicorn", "Robo-Rex", "Cosmic King Dragon"]
 var manager: MonsterGameManager
 var grid: MonsterGridManager
@@ -18,6 +20,13 @@ var progress: ProgressBar
 var spawn_button: Button
 var popup_layer: CanvasLayer
 var _content_margin: MarginContainer
+# --- v1.3 Missions / Daily Gift / Achievements (Worker B) -------------------
+var missions_manager: MissionsManager
+var _missions_button: Button
+var _gift_button: Button
+# --- v1.3 integration: theme + gallery pose toggle --------------------------
+var _bg: BackgroundFX = null
+var _gallery_show_alt: bool = false
 var _board_shake: Tween
 var _margin_shake: Tween
 
@@ -28,12 +37,14 @@ func setup(game_manager: MonsterGameManager) -> void:
 	manager.state_changed.connect(_update_hud)
 	manager.merge_happened.connect(_on_merge)
 	manager.monster_unlocked.connect(_show_new_monster)
+	# --- v1.3 Missions / Daily Gift / Achievements (Worker B) --------------
+	_setup_missions()
 	_update_hud()
 
 func _build_interface() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
-	var bg := BackgroundFXScript.new()
-	add_child(bg)
+	_bg = BackgroundFXScript.new()
+	add_child(_bg)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -65,6 +76,24 @@ func _build_interface() -> void:
 	_style_button(gallery_button, Color("#287e8b"))
 	gallery_button.pressed.connect(_show_gallery)
 	top.add_child(gallery_button)
+	# --- v1.3 Missions / Daily Gift buttons (Worker B) ----------------------
+	# Both open the missions panel (gift card sits at the top of it).
+	# _missions_button gets a ❗ badge when a reward is ready to claim;
+	# _gift_button shows ✓ once today's gift is claimed.
+	var missions_button := Button.new()
+	missions_button.text = "📋"
+	missions_button.custom_minimum_size = Vector2(64, 58)
+	missions_button.add_theme_font_size_override("font_size", 26)
+	_style_button(missions_button, Color("#7b1fa2"))
+	top.add_child(missions_button)
+	_missions_button = missions_button
+	var gift_button := Button.new()
+	gift_button.text = "🎁"
+	gift_button.custom_minimum_size = Vector2(64, 58)
+	gift_button.add_theme_font_size_override("font_size", 26)
+	_style_button(gift_button, Color("#b8860b"))
+	top.add_child(gift_button)
+	_gift_button = gift_button
 
 	var title := Label.new()
 	title.text = "MONSTER MERGE"
@@ -122,6 +151,18 @@ func _build_interface() -> void:
 	popup_layer = CanvasLayer.new()
 	popup_layer.layer = 10
 	add_child(popup_layer)
+
+## v1.3 integration: repaint the board sky when the theme changes.
+func apply_theme(theme_id: String) -> void:
+	if _bg != null:
+		_bg.apply_theme(theme_id)
+
+
+## v1.3 integration: rainbow celebration on the board sky.
+func show_rainbow() -> void:
+	if _bg != null:
+		_bg.show_rainbow()
+
 
 func _panel(color: Color, radius: int) -> PanelContainer:
 	var p := PanelContainer.new()
@@ -222,6 +263,10 @@ func _format_number(value: int) -> String:
 
 func _on_spawn_pressed() -> void:
 	_sfx("play_click")
+	# v1.3 integration: cute voice blip on spawn.
+	var sm := get_node_or_null("/root/SoundManager")
+	if sm != null and sm.has_method("play_blip"):
+		sm.call("play_blip", 1)
 	manager.spawn_monster()
 	var tween := create_tween()
 	tween.tween_property(spawn_button, "scale", Vector2(0.94, 0.94), 0.07)
@@ -426,6 +471,17 @@ func _show_gallery() -> void:
 	var overlay := _make_overlay()
 	var card := _popup_card(overlay)
 	card.add_child(_popup_label("MONSTER GALLERY", 28, Color("#ffe27b")))
+	# v1.3 integration: alternate gallery poses (second artwork per tier).
+	var pose_btn := Button.new()
+	pose_btn.text = "🎨  NEXT POSE: ALT ART" if not _gallery_show_alt else "🎨  NEXT POSE: CLASSIC ART"
+	pose_btn.custom_minimum_size.y = 48
+	_style_button(pose_btn, Color("#7b1fa2"))
+	pose_btn.pressed.connect(func() -> void:
+		_gallery_show_alt = not _gallery_show_alt
+		overlay.queue_free()
+		_show_gallery()
+	)
+	card.add_child(pose_btn)
 	var gallery_grid := GridContainer.new()
 	gallery_grid.columns = 2
 	gallery_grid.add_theme_constant_override("h_separation", 10)
@@ -446,7 +502,12 @@ func _show_gallery() -> void:
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if manager.discovered[i]:
 			# Big showcase art for discovered tiers (small tile as fallback).
-			var art := GalleryArt.load_showcase(i + 1)
+			# v1.3 integration: alternate pose when the toggle is on.
+			var art: Texture2D = null
+			if _gallery_show_alt:
+				art = GalleryArt.load_alt_showcase(i + 1)
+			if art == null:
+				art = GalleryArt.load_showcase(i + 1)
 			if art != null:
 				var big := TextureRect.new()
 				big.texture = art
@@ -515,3 +576,60 @@ func _popup_label(value: String, font_size: int, color: Color) -> Label:
 	label.add_theme_font_size_override("font_size", font_size)
 	label.add_theme_color_override("font_color", color)
 	return label
+
+# --- v1.3 Missions / Daily Gift / Achievements (Worker B) -------------------
+# Entry points: the 📋 MISSIONS and 🎁 DAILY GIFT buttons in the top bar.
+# The panel and the gift-box overlay are built and managed by
+# MissionsManager; this file only hosts its buttons and wires it to the
+# board grid + popup layer. Coordinator wiring for the casino/boss notify
+# calls lives in missions_manager.gd's header comment.
+# NOTE: the missions panel is added to popup_layer (a child of this UI),
+# so it is only visible while the board UI is visible — a menu worker that
+# wants the panel from the main menu should call open_missions_panel()
+# after showing the board UI (or reparent the panel).
+
+func _setup_missions() -> void:
+	if missions_manager != null and is_instance_valid(missions_manager):
+		return
+	var mm = MissionsManagerScript.new()
+	add_child(mm)
+	missions_manager = mm
+	mm.setup(manager, grid, popup_layer, self)
+	mm.missions_changed.connect(_refresh_mission_buttons)
+	if _missions_button != null:
+		_missions_button.pressed.connect(open_missions_panel)
+	if _gift_button != null:
+		_gift_button.pressed.connect(open_missions_panel)
+	_refresh_mission_buttons()
+
+
+## Coordinator override: replace the internally created MissionsManager
+## with an externally built one (e.g. one shared with the main menu).
+## Pass a FRESH instance — setup() is a no-op on an already-set-up one.
+func attach_missions_manager(mm: MissionsManager) -> void:
+	if missions_manager != null and is_instance_valid(missions_manager):
+		missions_manager.queue_free()
+	missions_manager = mm
+	if not mm.is_inside_tree():
+		add_child(mm)
+	mm.setup(manager, grid, popup_layer, self)
+	mm.missions_changed.connect(_refresh_mission_buttons)
+	_refresh_mission_buttons()
+
+
+func open_missions_panel() -> void:
+	_sfx("play_click")
+	if missions_manager != null:
+		missions_manager.open_panel()
+
+
+func _refresh_mission_buttons() -> void:
+	if _missions_button == null or _gift_button == null:
+		return
+	if missions_manager == null:
+		_missions_button.text = "📋"
+		_gift_button.text = "🎁"
+		return
+	var badge := missions_manager.pending_badge_count()
+	_missions_button.text = "📋❗" if badge > 0 else "📋"
+	_gift_button.text = "🎁✓" if not missions_manager.gift_available_today() else "🎁"

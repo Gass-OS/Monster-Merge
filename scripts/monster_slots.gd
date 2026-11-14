@@ -19,10 +19,14 @@ class_name MonsterSlots
 
 const SPIN_COST := 50
 const TWO_MATCH_WIN := 25
+
+## v1.3 integration: missions wiring (set by Main) + win signal.
+signal win_paid(win: int)
 const ConfettiFXScript = preload("res://scripts/confetti_fx.gd")
 const TileScript = preload("res://scripts/monster_tile.gd")
 
 var manager: MonsterGameManager
+var missions_manager = null  # v1.3 integration: MissionsManager (optional).
 var spinning: bool = false
 
 var _reels: Array = []
@@ -65,6 +69,9 @@ func do_spin() -> bool:
 		_result_label.text = "Not enough coins! Need 50 🪙"
 		return false
 	manager.save_game()
+	# v1.3 integration: daily-mission progress.
+	if missions_manager != null and missions_manager.has_method("notify_slots_played"):
+		missions_manager.notify_slots_played()
 	_final_tiers = [_random_tier(), _random_tier(), _random_tier()]
 	_stopped = [false, false, false]
 	_spin_time = 0.0
@@ -109,6 +116,8 @@ func _pay_out() -> void:
 	if win > 0:
 		manager.add_coins(win)
 		manager.save_game()
+		# v1.3 integration: win signal (Main adds fanfare/voice).
+		win_paid.emit(win)
 	if _final_tiers[0] == _final_tiers[1] and _final_tiers[1] == _final_tiers[2]:
 		var tier_name: String = MonsterGameManager.MONSTER_NAMES[_final_tiers[0] - 1]
 		_result_label.text = "🎉 JACKPOT! Three %s — you won %d coins!" % [tier_name, win]
