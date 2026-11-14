@@ -35,8 +35,8 @@ func setup(game_manager: MonsterGameManager) -> void:
 	_build_interface()
 	manager.coins_changed.connect(_update_coins)
 	manager.state_changed.connect(_update_hud)
-	manager.merge_happened.connect(_on_merge)
-	manager.monster_unlocked.connect(_show_new_monster)
+	manager.merge_happened.connect(_queue_merge_effects)
+	manager.monster_unlocked.connect(_queue_new_monster)
 	# --- v1.3 Missions / Daily Gift / Achievements (Worker B) --------------
 	_setup_missions()
 	_update_hud()
@@ -276,7 +276,20 @@ func _on_spawn_pressed() -> void:
 # Ring burst + flying coins + DING badge + big bouncy toast + board shake,
 # on top of the existing bouncy scale-up in grid_manager.
 
+# Defer heavy visual work until the tile input/merge callback has finished.
+# This avoids creating popup trees and tweens in the middle of touch dispatch.
+func _queue_merge_effects(tier: int, bonus: int) -> void:
+	call_deferred("_on_merge", tier, bonus)
+
+
+func _queue_new_monster(tier: int) -> void:
+	call_deferred("_show_new_monster", tier)
+
+
 func _on_merge(tier: int, bonus: int) -> void:
+	if popup_layer == null or not is_instance_valid(popup_layer):
+		return;
+
 	_sfx("play_pop")
 	_sfx("play_ding")
 	var tile_center := Vector2(size.x * 0.5, 620.0)
@@ -341,11 +354,6 @@ func _on_merge(tier: int, bonus: int) -> void:
 	_shake_board()
 	if tier >= 5:
 		_flash(MonsterTile.GLOW_COLORS[clampi(tier - 1, 0, 7)])
-	if tier >= 6:
-		Engine.time_scale = 0.35
-		get_tree().create_timer(0.25, true, false, true).timeout.connect(func() -> void:
-			Engine.time_scale = 1.0
-		)
 
 func _flash(col: Color) -> void:
 	var f := ColorRect.new()
@@ -416,21 +424,16 @@ func _shake_board() -> void:
 		)
 
 func _show_new_monster(tier: int) -> void:
+	if tier < 1 or tier > NAMES.size() or popup_layer == null or not is_instance_valid(popup_layer):
+		return
 	_sfx("play_unlock")
 	var overlay := _make_overlay()
 	var card := _popup_card(overlay)
 	var heading := _popup_label("★  NEW MONSTER FOUND!  ★", 27, Color("#ffdf58"))
 	card.add_child(heading)
-	# Big showcase art for the new monster (procedural 1024px gallery art).
-	var art := GalleryArt.load_showcase(tier)
-	if art != null:
-		var big := TextureRect.new()
-		big.texture = art
-		big.custom_minimum_size = Vector2(300, 300)
-		big.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		big.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		big.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		card.add_child(big)
+	# Use the lightweight animated tile preview here. The full-resolution
+	# gallery artwork remains available in the Gallery, not loaded on every
+	# first-time merge (keeps Android memory use predictable).
 	# Glowing golden star behind the new monster.
 	var stage := Control.new()
 	stage.custom_minimum_size = Vector2(220, 210)
