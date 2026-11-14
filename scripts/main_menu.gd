@@ -120,7 +120,8 @@ func show_about() -> void:
 	card.add_child(_label("Monster Merge", 28, Color.WHITE))
 	card.add_child(_label("Developed by Wael Gharsalli", 22, Color("#ffe27b")))
 	card.add_child(_label("Version 1.3.0", 20, Color("#9fb4d8")))
-	card.add_child(_label("A cheerful monster evolution merge game", 19, Color.WHITE))
+	card.add_child(_label("Hatch mysterious eggs, merge matching creatures, earn coins and evolve your collection through eight magical monster tiers — all the way to the Cosmic King Dragon!", 19, Color.WHITE))
+	card.add_child(_label("Daily missions • Gifts • Achievements • Lucky Spin • Four animated sky themes", 17, Color("#ffe27b")))
 	card.add_child(_label("Built with Godot • Music & art generated in-game", 17, Color("#9fb4d8")))
 	var close := Button.new()
 	close.text = "CLOSE"
@@ -154,7 +155,7 @@ func _build_layout() -> void:
 	var title_box := VBoxContainer.new()
 	title_box.add_theme_constant_override("separation", 0)
 	layout.add_child(title_box)
-	var title1 := _label("MONSTER", 72, Color("#ffd94d"))
+	var title1 := _label("MONSTER", 72, Color("#fff2c6"))
 	title1.add_theme_color_override("font_shadow_color", Color("#7a3c10"))
 	title1.add_theme_constant_override("shadow_offset_x", 4)
 	title1.add_theme_constant_override("shadow_offset_y", 5)
@@ -164,7 +165,7 @@ func _build_layout() -> void:
 	title2.add_theme_constant_override("shadow_offset_x", 4)
 	title2.add_theme_constant_override("shadow_offset_y", 5)
 	title_box.add_child(title2)
-	layout.add_child(_label("MERGE  •  EVOLVE  •  COLLECT!", 20, Color("#d7f5ff")))
+	layout.add_child(_label("HATCH EGGS  •  MERGE MONSTERS  •  UNLOCK LEGENDS!", 18, Color("#f4fbff")) )
 
 	# Cute monster previews (Egg, Slime, Dino).
 	var previews := HBoxContainer.new()
