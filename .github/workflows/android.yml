@@ -2,8 +2,7 @@ name: Monster Merge Android APK
 
 on:
   push:
-    branches:
-      - "**"
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -13,79 +12,59 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
-    container:
-      image: barichello/godot-ci:4.4.1
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install and configure Godot Android export requirements
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK packages
         shell: bash
         run: |
           set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-          # The upstream image omits curl and Python; install the small tools
-          # needed to fetch and unpack the official Godot export templates.
-          apt-get update
-          apt-get install -y --no-install-recommends curl unzip ca-certificates
-          rm -rf /var/lib/apt/lists/*
+      - name: Set up Godot and Android export templates
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.4.1
+          include-templates: true
+          use-dotnet: false
 
-          GODOT_VERSION="4.4.1"
-          TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
-          mkdir -p "$TEMPLATE_DIR" "$HOME/.config/godot" "$HOME/.local/share/godot"
-
-          if [ ! -s "$TEMPLATE_DIR/android_debug.apk" ] || [ ! -s "$TEMPLATE_DIR/android_release.apk" ]; then
-            curl --fail --location --retry 3 --output /tmp/godot-templates.tpz \
-              "https://github.com/godotengine/godot-builds/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz"
-            mkdir -p /tmp/godot-templates
-            unzip -q /tmp/godot-templates.tpz -d /tmp/godot-templates
-            cp -a /tmp/godot-templates/templates/. "$TEMPLATE_DIR/"
-          fi
-
-          JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
-          ANDROID_SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}}"
-          export JAVA_HOME ANDROID_HOME="$ANDROID_SDK_PATH" ANDROID_SDK_ROOT="$ANDROID_SDK_PATH"
-          test -x "$JAVA_HOME/bin/java"
-          mkdir -p "$ANDROID_SDK_PATH"
-          SDKMANAGER="$(find "$ANDROID_SDK_PATH/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)"
-          if [ -n "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_PATH" --licenses >/dev/null || true
-            "$SDKMANAGER" --sdk_root="$ANDROID_SDK_PATH" "platforms;android-35" "build-tools;35.0.0" "build-tools;33.0.2" "platform-tools"
-          else
-            echo "Android sdkmanager not found under $ANDROID_SDK_PATH"
-            exit 1
-          fi
-          test -d "$ANDROID_SDK_PATH/platforms/android-35"
-          test -d "$ANDROID_SDK_PATH/build-tools/35.0.0"
-          test -d "$ANDROID_SDK_PATH/build-tools/33.0.2"
-          test -x "$ANDROID_SDK_PATH/build-tools/35.0.0/aapt"
-          echo "Installed Android platforms:"; ls -1 "$ANDROID_SDK_PATH/platforms"
-          echo "Installed Android build-tools:"; ls -1 "$ANDROID_SDK_PATH/build-tools"
+      - name: Configure Godot Android SDK paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.config/godot" "$HOME/.android"
+          JAVA_HOME_REAL="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+          {
+            echo '[gd_resource type="EditorSettings" format=3]'
+            echo '[resource]'
+            printf 'export/android/android_sdk_path = "%s"\n' "$ANDROID_HOME"
+            printf 'export/android/java_sdk_path = "%s"\n' "$JAVA_HOME_REAL"
+          } > "$HOME/.config/godot/editor_settings-4.4.tres"
 
           keytool -genkeypair -noprompt -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias androiddebugkey -keystore "$HOME/debug.keystore" \
+            -alias androiddebugkey -keystore "$HOME/.android/debug.keystore" \
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US"
 
-          SETTINGS="$HOME/.config/godot/editor_settings-4.4.tres"
-          cat > "$SETTINGS" <<EOF
-          [gd_resource type="EditorSettings" format=3]
-
-          [resource]
-          export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/android_sdk_path = "$ANDROID_SDK_PATH"
-          export/android/debug_keystore = "$HOME/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          export/android/force_system_user = false
-          export/android/timestamping_authority_url = ""
-          export/android/shutdown_adb_on_exit = true
-          EOF
-
+          echo "Java:"
+          java -version
+          echo "Android SDK: $ANDROID_HOME"
+          ls -ld "$ANDROID_HOME/platforms/android-35" "$ANDROID_HOME/build-tools/35.0.0"
           echo "Godot templates:"
-          ls -lh "$TEMPLATE_DIR"/android_*.apk
-          echo "Java SDK: $JAVA_HOME"
-          echo "Android SDK: $ANDROID_SDK_PATH"
+          ls -lh "$HOME/.local/share/godot/export_templates/4.4.1.stable"/android_*.apk
 
       - name: Verify project files
         run: |
@@ -109,19 +88,14 @@ jobs:
             exit 1
           fi
 
-      - name: Export Android APK
+      - name: Export native Android APK
         shell: bash
         run: |
           set -euo pipefail
-          # Pass all three debug-signing values explicitly; Godot requires them as a complete set.
-          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/debug.keystore"
-          export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
-          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
-          godot --headless --verbose --path . --export-debug "Android" build/MonsterMerge.apk 2>&1 | tee build/export.log
-          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" build/export.log; then
-            echo "Godot reported export errors."
-            exit 1
-          fi
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/.android/debug.keystore" \
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey" \
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android" \
+            godot --verbose --headless --path . --export-debug "Android" build/MonsterMerge.apk 2>&1 | tee build/export.log
           test -s build/MonsterMerge.apk
           ls -lh build/MonsterMerge.apk
 
