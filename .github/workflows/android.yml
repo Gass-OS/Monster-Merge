@@ -24,16 +24,19 @@ jobs:
         run: |
           set -euo pipefail
 
+          # The upstream image omits curl and Python; install the small tools
+          # needed to fetch and unpack the official Godot export templates.
+          apt-get update
+          apt-get install -y --no-install-recommends curl unzip ca-certificates
+          rm -rf /var/lib/apt/lists/*
+
           GODOT_VERSION="4.4.1"
           TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
           mkdir -p "$TEMPLATE_DIR" "$HOME/.config/godot" "$HOME/.local/share/godot"
 
           if [ ! -s "$TEMPLATE_DIR/android_debug.apk" ] || [ ! -s "$TEMPLATE_DIR/android_release.apk" ]; then
-            python3 - <<'PY'
-          import urllib.request
-          url = "https://github.com/godotengine/godot-builds/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz"
-          urllib.request.urlretrieve(url, "/tmp/godot-templates.tpz")
-          PY
+            curl --fail --location --retry 3 --output /tmp/godot-templates.tpz \
+              "https://github.com/godotengine/godot-builds/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz"
             mkdir -p /tmp/godot-templates
             unzip -q /tmp/godot-templates.tpz -d /tmp/godot-templates
             cp -a /tmp/godot-templates/templates/. "$TEMPLATE_DIR/"
@@ -44,7 +47,10 @@ jobs:
           test -x "$JAVA_HOME/bin/java"
           test -d "$ANDROID_SDK_PATH/platform-tools"
 
-          keytool -genkeypair -noprompt -keyalg RSA -keysize 2048 -validity 10000             -alias androiddebugkey             -keystore "$HOME/debug.keystore"             -storepass android -keypass android             -dname "CN=Android Debug,O=Android,C=US"
+          keytool -genkeypair -noprompt -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias androiddebugkey -keystore "$HOME/debug.keystore" \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
 
           SETTINGS="$HOME/.config/godot/editor_settings-4.4.tres"
           cat > "$SETTINGS" <<EOF
