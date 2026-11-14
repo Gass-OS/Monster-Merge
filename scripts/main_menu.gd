@@ -140,116 +140,123 @@ func _close_about() -> void:
 
 
 func _build_layout() -> void:
+	# Compact, responsive menu: every important control fits on a portrait
+	# phone without pushing SPIN / EGG below the bottom edge.
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 40)
-	margin.add_theme_constant_override("margin_right", 40)
-	margin.add_theme_constant_override("margin_top", 56)
-	margin.add_theme_constant_override("margin_bottom", 36)
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_top", 26)
+	margin.add_theme_constant_override("margin_bottom", 22)
 	_menu_layer.add_child(margin)
+
 	var layout := VBoxContainer.new()
-	layout.add_theme_constant_override("separation", 18)
+	layout.add_theme_constant_override("separation", 8)
 	margin.add_child(layout)
 
-	# Title.
-	var title_box := VBoxContainer.new()
-	title_box.add_theme_constant_override("separation", 0)
-	layout.add_child(title_box)
-	var title1 := _label("MONSTER", 72, Color("#fff2c6"))
-	title1.add_theme_color_override("font_shadow_color", Color("#7a3c10"))
-	title1.add_theme_constant_override("shadow_offset_x", 4)
-	title1.add_theme_constant_override("shadow_offset_y", 5)
-	title_box.add_child(title1)
-	var title2 := _label("MERGE", 72, Color("#ffd94d"))
-	title2.add_theme_color_override("font_shadow_color", Color("#7a3c10"))
-	title2.add_theme_constant_override("shadow_offset_x", 4)
-	title2.add_theme_constant_override("shadow_offset_y", 5)
-	title_box.add_child(title2)
-	layout.add_child(_label("HATCH EGGS  •  MERGE MONSTERS  •  UNLOCK LEGENDS!", 18, Color("#f4fbff")) )
+	var title := _label("MONSTER MERGE", 56, Color("#fff0a6"))
+	title.add_theme_color_override("font_shadow_color", Color("#713c19"))
+	title.add_theme_constant_override("shadow_offset_x", 4)
+	title.add_theme_constant_override("shadow_offset_y", 5)
+	layout.add_child(title)
+	layout.add_child(_label("HATCH  •  MERGE  •  EVOLVE  •  COLLECT!", 16, Color("#f4fbff")))
 
-	# Cute monster previews (Egg, Slime, Dino).
+	# Three animated monster previews, scaled down to leave room for controls.
 	var previews := HBoxContainer.new()
 	previews.alignment = BoxContainer.ALIGNMENT_CENTER
-	previews.add_theme_constant_override("separation", 20)
+	previews.add_theme_constant_override("separation", 12)
 	layout.add_child(previews)
 	for i in PREVIEW_TIERS.size():
 		var item := VBoxContainer.new()
-		item.add_theme_constant_override("separation", 4)
+		item.add_theme_constant_override("separation", 2)
 		var tile := TileScript.new()
 		tile.set_monster(PREVIEW_TIERS[i])
-		tile.custom_minimum_size = Vector2(150, 165)
+		tile.custom_minimum_size = Vector2(112, 112)
+		tile.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		item.add_child(tile)
-		item.add_child(_label(PREVIEW_NAMES[i], 16, Color("#d7f5ff")))
+		item.add_child(_label(PREVIEW_NAMES[i], 14, Color("#d7f5ff")))
 		previews.add_child(item)
 
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	layout.add_child(spacer)
-
-	# Buttons.
 	var buttons := VBoxContainer.new()
-	buttons.add_theme_constant_override("separation", 14)
+	buttons.add_theme_constant_override("separation", 7)
 	layout.add_child(buttons)
-	var play := _menu_button("▶   PLAY", 96, 34, Color("#2a6b4a"))
+
+	var play := _menu_button("▶   PLAY", 72, 30, Color("#23864f"))
 	play.pressed.connect(_on_play_pressed)
 	buttons.add_child(play)
-	var gallery := _menu_button("🏆   GALLERY", 68, 26, Color("#1d2a44"))
+
+	var browse_row := HBoxContainer.new()
+	browse_row.add_theme_constant_override("separation", 8)
+	buttons.add_child(browse_row)
+	var gallery := _menu_button("🏆  GALLERY", 52, 19, Color("#1d2a44"))
+	gallery.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gallery.pressed.connect(_on_gallery_pressed)
-	buttons.add_child(gallery)
-	var how_to := _menu_button("❓   HOW TO PLAY", 68, 26, Color("#4a3a1d"))
+	browse_row.add_child(gallery)
+	var how_to := _menu_button("❓  HOW TO PLAY", 52, 19, Color("#4a3a1d"))
+	how_to.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	how_to.pressed.connect(_on_how_to_pressed)
-	buttons.add_child(how_to)
-	# Casino fun: one row of three so the menu still fits on a 720x1280 screen.
+	browse_row.add_child(how_to)
+
+	# Keep all three arcade actions together and immediately visible.
 	var fun_row := HBoxContainer.new()
-	fun_row.add_theme_constant_override("separation", 10)
+	fun_row.add_theme_constant_override("separation", 8)
 	buttons.add_child(fun_row)
-	var spin := _menu_button("🎡   SPIN", 64, 20, Color("#7b1fa2"))
+	var spin := _menu_button("🎡  SPIN", 54, 19, Color("#7b1fa2"))
 	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spin.pressed.connect(func() -> void: spin_requested.emit())
 	fun_row.add_child(spin)
-	var slots := _menu_button("🎰   SLOTS", 64, 20, Color("#b8860b"))
+	var slots := _menu_button("🎰  SLOTS", 54, 19, Color("#b8860b"))
 	slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slots.pressed.connect(func() -> void: slots_requested.emit())
 	fun_row.add_child(slots)
-	var egg := _menu_button("🥚   EGG", 64, 20, Color("#287e8b"))
+	var egg := _menu_button("🥚  MYSTERY EGG", 54, 18, Color("#287e8b"))
 	egg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	egg.pressed.connect(func() -> void: egg_requested.emit())
 	fun_row.add_child(egg)
-	# v1.3 integration: missions + daily gift row (panel lives in the UI
-	# manager's popup_layer, which renders above the menu like the gallery).
+
 	var quest_row := HBoxContainer.new()
-	quest_row.add_theme_constant_override("separation", 10)
+	quest_row.add_theme_constant_override("separation", 8)
 	buttons.add_child(quest_row)
-	var missions_btn := _menu_button("📋   MISSIONS", 64, 20, Color("#6a4a9e"))
+	var missions_btn := _menu_button("📋  MISSIONS", 50, 18, Color("#6a4a9e"))
 	missions_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	missions_btn.pressed.connect(func() -> void: missions_requested.emit())
 	quest_row.add_child(missions_btn)
-	var gift_btn := _menu_button("🎁   DAILY GIFT", 64, 20, Color("#b8860b"))
+	var gift_btn := _menu_button("🎁  DAILY GIFT", 50, 18, Color("#b8860b"))
 	gift_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gift_btn.pressed.connect(func() -> void: gift_requested.emit())
 	quest_row.add_child(gift_btn)
-	_music_button = _menu_button("🎵   MUSIC: ON", 68, 26, Color("#1d2a44"))
-	_music_button.pressed.connect(_on_music_pressed)
-	buttons.add_child(_music_button)
-	_sound_button = _menu_button("🔊   SOUND: ON", 68, 26, Color("#1d2a44"))
-	_sound_button.pressed.connect(_on_sound_pressed)
-	buttons.add_child(_sound_button)
-	# v1.3 (Worker A): settings panel (also reachable from the pause menu).
-	var settings_btn := _menu_button("⚙️   SETTINGS", 68, 26, Color("#1d2a44"))
-	settings_btn.pressed.connect(_on_settings_pressed)
-	buttons.add_child(settings_btn)
-	var quit := _menu_button("🚪   QUIT", 68, 26, Color("#8a1c27"))
-	quit.pressed.connect(_on_quit_pressed)
-	buttons.add_child(quit)
-	# v1.3 (Worker A): small About button.
-	var about := _menu_button("ℹ️   ABOUT", 52, 20, Color("#1d2a44"))
-	about.pressed.connect(show_about)
-	buttons.add_child(about)
 
-	# v1.3 (Worker A): developer credit in the menu footer.
-	layout.add_child(_label("Developed by Wael Gharsalli", 16, Color("#ffe27b")))
-	layout.add_child(_label("Your progress saves automatically  •  v1.3", 15, Color("#7f8fae")))
+	var settings_row := HBoxContainer.new()
+	settings_row.add_theme_constant_override("separation", 8)
+	buttons.add_child(settings_row)
+	_music_button = _menu_button("🎵 MUSIC: ON", 46, 16, Color("#1d2a44"))
+	_music_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_music_button.pressed.connect(_on_music_pressed)
+	settings_row.add_child(_music_button)
+	_sound_button = _menu_button("🔊 SOUND: ON", 46, 16, Color("#1d2a44"))
+	_sound_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sound_button.pressed.connect(_on_sound_pressed)
+	settings_row.add_child(_sound_button)
+	var settings_btn := _menu_button("⚙️ SETTINGS", 46, 16, Color("#1d2a44"))
+	settings_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	settings_btn.pressed.connect(_on_settings_pressed)
+	settings_row.add_child(settings_btn)
+
+	var bottom_row := HBoxContainer.new()
+	bottom_row.add_theme_constant_override("separation", 8)
+	buttons.add_child(bottom_row)
+	var quit := _menu_button("🚪 QUIT", 44, 16, Color("#8a1c27"))
+	quit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	quit.pressed.connect(_on_quit_pressed)
+	bottom_row.add_child(quit)
+	var about := _menu_button("ℹ️ ABOUT", 44, 16, Color("#1d2a44"))
+	about.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	about.pressed.connect(show_about)
+	bottom_row.add_child(about)
+
+	layout.add_child(_label("Developed by Wael Gharsalli", 14, Color("#ffe27b")))
+	layout.add_child(_label("Progress saves automatically  •  v1.3.1", 13, Color("#9fb4d8")))
 
 
 func _on_play_pressed() -> void:
