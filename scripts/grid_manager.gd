@@ -8,6 +8,7 @@ var last_merged_index: int = -1
 # Tap-to-merge selection: index of the currently selected tile, or -1.
 var selected_index: int = -1
 var _drop_index: int = -1
+var _merge_in_progress: bool = false
 
 func setup(manager: MonsterGameManager) -> void:
 	game_manager = manager
@@ -42,14 +43,23 @@ func refresh() -> void:
 			_apply_match_highlights()
 
 func _on_merge_requested(source: int, target: int) -> void:
-	# Recorded BEFORE merge_tiles so ui_manager can read it from the
-	# merge_happened signal, which fires synchronously inside merge_tiles.
+	# Ignore duplicate touch-up / drag events while one merge is being applied.
+	if _merge_in_progress or game_manager == null:
+		return
+	if source < 0 or target < 0 or source >= tiles.size() or target >= tiles.size():
+		return
+	if source == target or tiles[source].tier <= 0 or tiles[source].tier != tiles[target].tier:
+		return
+	_merge_in_progress = true
 	last_merged_index = target
-	if game_manager.merge_tiles(source, target):
+	var merged := game_manager.merge_tiles(source, target)
+	if merged and target < tiles.size() and is_instance_valid(tiles[target]):
 		var tile := tiles[target]
-		tile.scale = Vector2(0.72, 0.72)
+		tile.pivot_offset = tile.size * 0.5
+		tile.scale = Vector2(0.82, 0.82)
 		var tween := create_tween()
-		tween.tween_property(tile, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(tile, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_merge_in_progress = false
 
 # --- Tap-to-merge ------------------------------------------------------------
 # Tap a monster to select it (glow ring + all same-tier tiles pulse).
