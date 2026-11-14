@@ -22,6 +22,9 @@ var grid: Array[int] = []
 var spawn_clock: float = 0.0
 var passive_clock: float = 0.0
 var save_clock: float = 0.0
+# --- Casino / v1.2 additions (new save keys, backwards-compatible) -------
+var free_spin_used: bool = false  # Lucky Spin: one free spin per save.
+var passive_2x_seconds: float = 0.0  # Remaining 2x passive-income time.
 
 func _ready() -> void:
 	grid.resize(GRID_SIZE)
@@ -42,8 +45,12 @@ func _process(delta: float) -> void:
 		for tier in grid:
 			if tier > 1:
 				income += tier - 1
+		if passive_2x_seconds > 0.0:
+			income *= 2
 		if income > 0:
 			add_coins(income)
+	if passive_2x_seconds > 0.0:
+		passive_2x_seconds = maxf(0.0, passive_2x_seconds - delta)
 	if save_clock >= 5.0:
 		save_clock = 0.0
 		save_game()
@@ -86,6 +93,47 @@ func add_coins(amount: int) -> void:
 	coins += maxi(0, amount)
 	coins_changed.emit(coins)
 
+# Spend coins if affordable. Returns false (and spends nothing) when broke.
+func spend_coins(amount: int) -> bool:
+	if amount < 0:
+		return false
+	if coins < amount:
+		return false
+	coins -= amount
+	coins_changed.emit(coins)
+	return true
+
+# Place a monster of `tier` on a random EMPTY board slot.
+# Returns false when the board is full (caller should pay compensation).
+func add_monster_tier(tier: int) -> bool:
+	var empty: Array[int] = []
+	for i in range(GRID_SIZE):
+		if grid[i] == 0:
+			empty.append(i)
+	if empty.is_empty():
+		return false
+	var chosen: int = empty[randi() % empty.size()]
+	grid[chosen] = clampi(tier, 1, MAX_TIER)
+	if not discovered[grid[chosen] - 1]:
+		discovered[grid[chosen] - 1] = true
+		highest_unlocked = maxi(highest_unlocked, grid[chosen])
+		monster_unlocked.emit(grid[chosen])
+	state_changed.emit()
+	save_game()
+	return true
+
+# 2x passive income for `seconds` (stacks by taking the longer duration).
+func grant_passive_2x(seconds: float) -> void:
+	passive_2x_seconds = maxf(passive_2x_seconds, seconds)
+	save_game()
+
+func is_passive_2x_active() -> bool:
+	return passive_2x_seconds > 0.0
+
+func mark_free_spin_used() -> void:
+	free_spin_used = true
+	save_game()
+
 func get_next_tier_text() -> String:
 	return "NEXT MERGE: Tier %d!" % mini(highest_unlocked + 1, MAX_TIER)
 
@@ -95,7 +143,9 @@ func save_game() -> void:
 		"coins": coins,
 		"highest_unlocked": highest_unlocked,
 		"discovered": discovered,
-		"grid": grid
+		"grid": grid,
+		"free_spin_used": free_spin_used,
+		"passive_2x_seconds": passive_2x_seconds
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file:
@@ -112,6 +162,9 @@ func _load_game() -> void:
 		return
 	coins = int(parsed.get("coins", 0))
 	highest_unlocked = clampi(int(parsed.get("highest_unlocked", 1)), 1, MAX_TIER)
+	# New v1.2 keys: .get() defaults keep old saves (which lack them) loading.
+	free_spin_used = bool(parsed.get("free_spin_used", false))
+	passive_2x_seconds = maxf(0.0, float(parsed.get("passive_2x_seconds", 0.0)))
 	var saved_discovered = parsed.get("discovered", [])
 	if saved_discovered is Array and saved_discovered.size() == MAX_TIER:
 		for i in range(MAX_TIER):
@@ -126,6 +179,8 @@ func reset_save() -> void:
 	coins = 0
 	highest_unlocked = 1
 	discovered = [true, false, false, false, false, false, false, false]
+	free_spin_used = false
+	passive_2x_seconds = 0.0
 	grid.fill(0)
 	save_game()
 	state_changed.emit()

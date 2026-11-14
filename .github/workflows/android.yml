@@ -126,6 +126,18 @@ jobs:
           test -s build/MonsterMerge.apk
           ls -lh build/MonsterMerge.apk
 
+      - name: Upload export logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Monster-Merge-export-logs
+          path: |
+            build/export.log
+            build/import.log
+            build/validation.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

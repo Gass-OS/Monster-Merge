@@ -2,6 +2,11 @@ extends Control
 class_name MonsterTile
 
 signal merge_requested(source_index: int, target_index: int)
+# Tap-to-merge: a press + release without moving is a tap, not a drag.
+signal tile_tapped(index: int)
+# Emitted while dragging so the grid can highlight the drop target.
+signal drag_hovered(source_index: int, global_position: Vector2)
+signal drag_ended
 
 const PALETTE := [
 	Color("#49a9ed"), Color("#72d64e"), Color("#83c94d"), Color("#f27642"),
@@ -9,7 +14,7 @@ const PALETTE := [
 ]
 const FACE_COLOR := Color("#26374c")
 const CHEEK_COLOR := Color(1.0, 0.55, 0.6, 0.75)
-const SILHOUETTE_COLOR := Color("#080b12")
+const SILHOUETTE_COLOR := Color("#33475e")
 const GLOW_COLORS := [
 	Color("#4cc3ff"), Color("#58ff7a"), Color("#a6ff4f"), Color("#ff7a2e"),
 	Color("#ffcc33"), Color("#7ff6ff"), Color("#5ad0ff"), Color("#c06bff")
@@ -21,6 +26,12 @@ var silhouette_mode: bool = false
 var _press_position := Vector2.ZERO
 var _dragging := false
 var _pressed := false
+# Tap-to-merge visuals (owned by the grid, drawn here).
+var _selected := false
+var _match_highlight := false
+var _drop_highlight := false
+var _drop_valid := true
+var _pulse_t := 0.0
 
 func _ready() -> void:
 	if custom_minimum_size == Vector2.ZERO:
@@ -36,6 +47,36 @@ func set_silhouette(value: bool) -> void:
 	silhouette_mode = value
 	queue_redraw()
 
+func _process(delta: float) -> void:
+	# Pulse the selection / match / drop rings while any of them is shown.
+	if _selected or _match_highlight or _drop_highlight:
+		_pulse_t += delta
+		queue_redraw()
+
+# --- Tap-to-merge visual state (set by the grid) ----------------------------
+
+func set_selected(value: bool) -> void:
+	_selected = value
+	queue_redraw()
+
+func is_selected() -> bool:
+	return _selected
+
+func set_match_highlight(value: bool) -> void:
+	_match_highlight = value
+	queue_redraw()
+
+func is_match_highlighted() -> bool:
+	return _match_highlight
+
+func set_drop_highlight(value: bool, valid: bool = true) -> void:
+	_drop_highlight = value
+	_drop_valid = valid
+	queue_redraw()
+
+func is_drop_highlighted() -> bool:
+	return _drop_highlight
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		if event.pressed:
@@ -47,6 +88,8 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag and _pressed:
 		if event.position.distance_to(_press_position) > 12.0:
 			_dragging = true
+		if _dragging and tier > 0:
+			drag_hovered.emit(tile_index, get_global_transform_with_canvas() * event.position)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_pressed = true
@@ -57,21 +100,27 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _pressed:
 		if get_global_mouse_position().distance_to(_press_position) > 12.0:
 			_dragging = true
+		if _dragging and tier > 0:
+			drag_hovered.emit(tile_index, get_global_mouse_position())
 
 func _finish_drag(global_position: Vector2) -> void:
 	if not _pressed:
 		return
 	_pressed = false
-	if tier <= 0:
-		return
+	drag_ended.emit()
 	if _dragging:
-		var parent_grid := get_parent()
-		if parent_grid:
-			for tile in parent_grid.get_children():
-				if tile is MonsterTile and tile.tile_index != tile_index and tile.get_global_rect().has_point(global_position):
-					merge_requested.emit(tile_index, tile.tile_index)
-					break
-	_dragging = false
+		_dragging = false
+		if tier > 0:
+			var parent_grid := get_parent()
+			if parent_grid:
+				for tile in parent_grid.get_children():
+					if tile is MonsterTile and tile.tile_index != tile_index and tile.get_global_rect().has_point(global_position):
+						merge_requested.emit(tile_index, tile.tile_index)
+						break
+	else:
+		# A press + release without moving is a tap, even on an empty tile
+		# (the grid uses empty-tile taps to clear the selection).
+		tile_tapped.emit(tile_index)
 
 func _glow_color() -> Color:
 	if silhouette_mode:
@@ -85,43 +134,87 @@ func _draw() -> void:
 	var was_sil := silhouette_mode
 	var gc := _glow_color()
 	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color("#0b0f17") if tier == 0 else Color("#121826")
-	panel.border_color = Color("#222b3d") if tier == 0 else gc.darkened(0.35)
-	panel.set_border_width_all(2 if tier == 0 else 3)
-	panel.set_corner_radius_all(14)
-	if tier > 0 and not was_sil:
-		panel.shadow_color = Color(gc, 0.28)
-		panel.shadow_size = 7
+	panel.bg_color = Color("#d8f4f2") if tier == 0 else Color("#fff8df")
+	panel.border_color = Color("#8ac9c5")
+	panel.set_border_width_all(3)
+	panel.set_corner_radius_all(18)
 	draw_style_box(panel, rect)
 	if tier == 0:
-		draw_arc(size * 0.5, 12.0, 0.0, TAU, 28, Color("#2a3550"), 2.0, true)
+		draw_circle(size * 0.5, 13.0, Color("#b9dedb"))
+		_draw_highlights(gc)
 		return
 	var center := Vector2(size.x * 0.5, size.y * 0.47)
 	var s := minf(size.x, size.y) * 0.31
-	# Soft coloured aura behind the creature.
+	# Soft coloured aura behind the creature (kept from v2, subtle and light).
 	if not was_sil:
 		for i in range(4):
 			draw_circle(center, s * (1.75 - float(i) * 0.38), Color(gc, 0.045 + 0.008 * float(tier)))
-	# Ground shadow.
+	# Soft ground shadow (kept from v2, lightened for the bright theme).
 	draw_set_transform(center + Vector2(0, s * 1.2), 0.0, Vector2(1.0, 0.28))
-	draw_circle(Vector2.ZERO, s, Color(0, 0, 0, 0.55))
+	draw_circle(Vector2.ZERO, s, Color(0, 0, 0, 0.15))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# Rim light: draw the flat silhouette offset in the glow colour first.
-	silhouette_mode = true
-	_draw_creature(center + Vector2(-3.0, -3.0), Color(gc, 0.95))
-	_draw_creature(center + Vector2(2.5, 3.0), Color(gc.darkened(0.45), 0.55))
-	silhouette_mode = was_sil
-	var body_color: Color = SILHOUETTE_COLOR if was_sil else PALETTE[tier - 1].darkened(0.55)
+	var body_color: Color = SILHOUETTE_COLOR if was_sil else PALETTE[tier - 1]
 	_draw_creature(center, body_color)
-	# Tier plate.
+	# Tier plate (kept from v2, recolored bright: cream plate, glow border,
+	# dark navy text).
 	var font := ThemeDB.fallback_font
 	var plate := StyleBoxFlat.new()
-	plate.bg_color = Color("#080b12")
-	plate.border_color = gc.darkened(0.3)
+	plate.bg_color = Color("#fff8df")
+	plate.border_color = gc
 	plate.set_border_width_all(1)
 	plate.set_corner_radius_all(6)
 	draw_style_box(plate, Rect2(8, size.y - 26, size.x - 16, 20))
-	draw_string(font, Vector2(8, size.y - 11), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, gc.lightened(0.25))
+	draw_string(font, Vector2(8, size.y - 11), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, Color("#273b52"))
+	_draw_highlights(gc)
+
+func _draw_highlights(gc: Color) -> void:
+	# Bright cartoon rings for tap-to-merge, drawn on top so they stay
+	# visible. _pulse_t only advances while a ring is shown (_process).
+	var pulse := 0.5 + 0.5 * sin(_pulse_t * 5.0)
+	var rect := Rect2(Vector2.ZERO, size)
+	if _match_highlight and not _selected:
+		# Same-tier tiles pulse softly in the tier's glow colour:
+		# "tap me, we can merge".
+		var ring := StyleBoxFlat.new()
+		ring.bg_color = Color(gc, 0.10 + 0.08 * pulse)
+		ring.border_color = Color(gc, 0.55 + 0.35 * pulse)
+		ring.set_border_width_all(4)
+		ring.set_corner_radius_all(18)
+		draw_style_box(ring, rect)
+	if _drop_highlight:
+		# Tile under the finger while dragging. Valid target: the tier's
+		# glow colour; anything else: a neutral white ring.
+		var ring := StyleBoxFlat.new()
+		if _drop_valid:
+			ring.bg_color = Color(gc, 0.12 + 0.06 * pulse)
+			ring.border_color = Color(gc, 0.9)
+			ring.set_border_width_all(6)
+		else:
+			ring.bg_color = Color(1, 1, 1, 0.05)
+			ring.border_color = Color(1, 1, 1, 0.75)
+			ring.set_border_width_all(3)
+		ring.set_corner_radius_all(18)
+		draw_style_box(ring, rect.grow(-2))
+	if _selected:
+		# Thick glowing ring + soft halo + white pinstripe.
+		var halo := StyleBoxFlat.new()
+		halo.bg_color = Color(gc, 0.08 + 0.06 * pulse)
+		halo.border_color = Color(gc, 0.35 + 0.25 * pulse)
+		halo.set_border_width_all(3)
+		halo.set_corner_radius_all(20)
+		draw_style_box(halo, rect.grow(3))
+		var ring := StyleBoxFlat.new()
+		ring.bg_color = Color(gc, 0.10)
+		ring.border_color = Color(gc, 0.95)
+		ring.set_border_width_all(5)
+		ring.set_corner_radius_all(18)
+		draw_style_box(ring, rect.grow(-2))
+		var inner := StyleBoxFlat.new()
+		inner.bg_color = Color(0, 0, 0, 0)
+		inner.border_color = Color(1, 1, 1, 0.85)
+		inner.set_border_width_all(2)
+		inner.set_corner_radius_all(15)
+		draw_style_box(inner, rect.grow(-8))
 
 func _draw_creature(c: Vector2, color: Color) -> void:
 	var s := minf(size.x, size.y) * 0.31
@@ -172,17 +265,21 @@ func _round_body(c: Vector2, s: float, r: float, c_main: Color, c_dark: Color, c
 		draw_circle(c + Vector2(-r * 0.38, -r * 0.44), r * 0.2, Color(1, 1, 1, 0.35))
 
 func _face(c: Vector2, s: float) -> void:
-	# Menacing glowing eyes and a stern mouth.
-	var gc := _glow_color()
-	var er := maxf(3.5, s * 0.12)
+	var er := maxf(3.5, s * 0.13)
 	var eye_l := c + Vector2(-s * 0.32, -s * 0.08)
 	var eye_r := c + Vector2(s * 0.32, -s * 0.08)
-	for e: Vector2 in [eye_l, eye_r]:
-		draw_circle(e, er * 2.4, Color(gc, 0.16))
-		draw_circle(e, er * 1.6, Color(gc, 0.35))
-		draw_circle(e, er, gc.lightened(0.3))
-		draw_circle(e, er * 0.45, Color.WHITE)
-	draw_line(c + Vector2(-s * 0.2, s * 0.3), c + Vector2(s * 0.2, s * 0.3), Color(0, 0, 0, 0.6), 3.0, true)
+	draw_circle(eye_l, er, FACE_COLOR)
+	draw_circle(eye_r, er, FACE_COLOR)
+	# Eye sparkle: big highlight + tiny glint.
+	draw_circle(eye_l + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
+	draw_circle(eye_r + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
+	draw_circle(eye_l + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
+	draw_circle(eye_r + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
+	# Cheeks.
+	draw_circle(c + Vector2(-s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
+	draw_circle(c + Vector2(s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
+	# Smile.
+	draw_arc(c + Vector2(0, s * 0.1), s * 0.28, 0.25, PI - 0.25, 16, FACE_COLOR, 3.0)
 
 func _sparkle(pos: Vector2, r: float, col: Color) -> void:
 	var pts := PackedVector2Array([

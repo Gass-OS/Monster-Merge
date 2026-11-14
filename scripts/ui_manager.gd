@@ -50,19 +50,19 @@ func _build_interface() -> void:
 	var top := HBoxContainer.new()
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
 	layout.add_child(top)
-	coin_panel = _panel(Color("#121826"), 18)
+	coin_panel = _panel(Color("#fff0a9"), 22)
 	coin_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(coin_panel)
 	coin_label = Label.new()
 	coin_label.text = "🪙  0"
 	coin_label.add_theme_font_size_override("font_size", 28)
-	coin_label.add_theme_color_override("font_color", Color("#ffd36b"))
+	coin_label.add_theme_color_override("font_color", Color("#714319"))
 	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	coin_panel.add_child(coin_label)
 	var gallery_button := Button.new()
 	gallery_button.text = "🏆 GALLERY"
 	gallery_button.custom_minimum_size = Vector2(150, 58)
-	_style_button(gallery_button, Color("#1d2a44"))
+	_style_button(gallery_button, Color("#287e8b"))
 	gallery_button.pressed.connect(_show_gallery)
 	top.add_child(gallery_button)
 
@@ -70,28 +70,28 @@ func _build_interface() -> void:
 	title.text = "MONSTER MERGE"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 38)
-	title.add_theme_color_override("font_color", Color("#f1e7c8"))
-	title.add_theme_color_override("font_shadow_color", Color("#8a1422"))
+	title.add_theme_color_override("font_color", Color("#ffffff"))
+	title.add_theme_color_override("font_shadow_color", Color("#287d9a"))
 	title.add_theme_constant_override("shadow_offset_x", 3)
 	title.add_theme_constant_override("shadow_offset_y", 4)
 	layout.add_child(title)
 	next_label = Label.new()
 	next_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	next_label.add_theme_font_size_override("font_size", 23)
-	next_label.add_theme_color_override("font_color", Color("#9fb4d8"))
+	next_label.add_theme_color_override("font_color", Color("#164d69"))
 	layout.add_child(next_label)
 	progress = ProgressBar.new()
 	progress.custom_minimum_size.y = 22
 	progress.max_value = 8
 	progress.show_percentage = false
-	progress.add_theme_stylebox_override("background", _flat_style(Color("#10141f"), 12, Color("#232c3d"), 2))
-	progress.add_theme_stylebox_override("fill", _flat_style(Color("#e8a93a"), 12))
+	progress.add_theme_stylebox_override("background", _flat_style(Color("#d4f2f4"), 12))
+	progress.add_theme_stylebox_override("fill", _flat_style(Color("#ffc64b"), 12))
 	layout.add_child(progress)
 
 	board_panel = PanelContainer.new()
 	board_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	board_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	board_panel.add_theme_stylebox_override("panel", _flat_style(Color("#0b0f18"), 24, Color("#7a5a22"), 6))
+	board_panel.add_theme_stylebox_override("panel", _flat_style(Color("#168c91"), 28, Color("#0c6976"), 8))
 	layout.add_child(board_panel)
 	var board_margin := MarginContainer.new()
 	board_margin.add_theme_constant_override("margin_left", 12)
@@ -109,7 +109,7 @@ func _build_interface() -> void:
 	hint.text = "DRAG matching monsters together to evolve!"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 17)
-	hint.add_theme_color_override("font_color", Color("#7f8fae"))
+	hint.add_theme_color_override("font_color", Color("#15556c"))
 	layout.add_child(hint)
 	spawn_button = Button.new()
 	spawn_button.text = "🥚   SPAWN EGG"
@@ -177,7 +177,7 @@ func _make_glossy_texture(top: Color, mid: Color, bottom: Color) -> ImageTexture
 	return ImageTexture.create_from_image(img)
 
 func _style_glossy_button(button: Button) -> void:
-	var tex := _make_glossy_texture(Color("#e0414f"), Color("#a8202e"), Color("#6b121c"))
+	var tex := _make_glossy_texture(Color("#ffb347"), Color("#ff8c32"), Color("#f97316"))
 	var normal := StyleBoxTexture.new()
 	normal.texture = tex
 	normal.content_margin_left = 16
@@ -376,6 +376,16 @@ func _show_new_monster(tier: int) -> void:
 	var card := _popup_card(overlay)
 	var heading := _popup_label("★  NEW MONSTER FOUND!  ★", 27, Color("#ffdf58"))
 	card.add_child(heading)
+	# Big showcase art for the new monster (procedural 1024px gallery art).
+	var art := GalleryArt.load_showcase(tier)
+	if art != null:
+		var big := TextureRect.new()
+		big.texture = art
+		big.custom_minimum_size = Vector2(300, 300)
+		big.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		big.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		big.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		card.add_child(big)
 	# Glowing golden star behind the new monster.
 	var stage := Control.new()
 	stage.custom_minimum_size = Vector2(220, 210)
@@ -391,17 +401,17 @@ func _show_new_monster(tier: int) -> void:
 	stage.add_child(preview)
 	card.add_child(stage)
 	card.add_child(_popup_label("TIER %d: %s" % [tier, NAMES[tier - 1]], 22, Color.WHITE))
-	card.add_child(_popup_label("Makes extra coins every second!", 17, Color("#9fb4d8")))
+	card.add_child(_popup_label("Makes extra coins every second!", 17, Color("#d5f6d9")))
 	var ok := Button.new()
 	ok.text = "OK!"
 	ok.custom_minimum_size.y = 58
-	_style_button(ok, Color("#2a6b4a"))
+	_style_button(ok, Color("#36b95f"))
 	ok.pressed.connect(overlay.queue_free)
 	card.add_child(ok)
 	var gallery := Button.new()
 	gallery.text = "VIEW GALLERY"
 	gallery.custom_minimum_size.y = 50
-	_style_button(gallery, Color("#1d2a44"))
+	_style_button(gallery, Color("#287eaa"))
 	gallery.pressed.connect(func():
 		overlay.queue_free()
 		_show_gallery()
@@ -435,7 +445,18 @@ func _show_gallery() -> void:
 		tile.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if manager.discovered[i]:
-			item.add_child(tile)
+			# Big showcase art for discovered tiers (small tile as fallback).
+			var art := GalleryArt.load_showcase(i + 1)
+			if art != null:
+				var big := TextureRect.new()
+				big.texture = art
+				big.custom_minimum_size = Vector2(190, 190)
+				big.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+				big.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				big.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+				item.add_child(big)
+			else:
+				item.add_child(tile)
 			var name_label := Label.new()
 			name_label.text = NAMES[i]
 			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -456,13 +477,13 @@ func _show_gallery() -> void:
 	var close := Button.new()
 	close.text = "CLOSE"
 	close.custom_minimum_size.y = 54
-	_style_button(close, Color("#8a1c27"))
+	_style_button(close, Color("#ff8c32"))
 	close.pressed.connect(overlay.queue_free)
 	card.add_child(close)
 
 func _make_overlay() -> ColorRect:
 	var overlay := ColorRect.new()
-	overlay.color = Color(0.01, 0.01, 0.03, 0.9)
+	overlay.color = Color(0.04, 0.12, 0.2, 0.84)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	popup_layer.add_child(overlay)
 	return overlay
@@ -472,7 +493,7 @@ func _popup_card(overlay: ColorRect) -> VBoxContainer:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
 	var frame := PanelContainer.new()
-	frame.add_theme_stylebox_override("panel", _flat_style(Color("#0d121c"), 22, Color("#b8923a"), 4))
+	frame.add_theme_stylebox_override("panel", _flat_style(Color("#24677b"), 22, Color("#f8d66b"), 5))
 	center.add_child(frame)
 	var card := VBoxContainer.new()
 	card.custom_minimum_size = Vector2(480, 0)
