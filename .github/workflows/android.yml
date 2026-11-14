@@ -44,16 +44,23 @@ jobs:
 
           JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
           ANDROID_SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}}"
+          export JAVA_HOME ANDROID_HOME="$ANDROID_SDK_PATH" ANDROID_SDK_ROOT="$ANDROID_SDK_PATH"
           test -x "$JAVA_HOME/bin/java"
-          test -d "$ANDROID_SDK_PATH/platform-tools"
+          mkdir -p "$ANDROID_SDK_PATH"
           SDKMANAGER="$(find "$ANDROID_SDK_PATH/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)"
           if [ -n "$SDKMANAGER" ]; then
             yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_PATH" --licenses >/dev/null || true
-            "$SDKMANAGER" --sdk_root="$ANDROID_SDK_PATH" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+            "$SDKMANAGER" --sdk_root="$ANDROID_SDK_PATH" "platforms;android-35" "build-tools;35.0.0" "build-tools;33.0.2" "platform-tools"
           else
             echo "Android sdkmanager not found under $ANDROID_SDK_PATH"
             exit 1
           fi
+          test -d "$ANDROID_SDK_PATH/platforms/android-35"
+          test -d "$ANDROID_SDK_PATH/build-tools/35.0.0"
+          test -d "$ANDROID_SDK_PATH/build-tools/33.0.2"
+          test -x "$ANDROID_SDK_PATH/build-tools/35.0.0/aapt"
+          echo "Installed Android platforms:"; ls -1 "$ANDROID_SDK_PATH/platforms"
+          echo "Installed Android build-tools:"; ls -1 "$ANDROID_SDK_PATH/build-tools"
 
           keytool -genkeypair -noprompt -keyalg RSA -keysize 2048 -validity 10000 \
             -alias androiddebugkey -keystore "$HOME/debug.keystore" \
