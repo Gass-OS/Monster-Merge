@@ -43,22 +43,42 @@ func refresh() -> void:
 			_apply_match_highlights()
 
 func _on_merge_requested(source: int, target: int) -> void:
-	# Ignore duplicate touch-up / drag events while one merge is being applied.
+	# Validate the request during input dispatch, but apply the game-state
+	# transaction on the next idle frame. This prevents state_changed from
+	# rebuilding tile visuals while Godot is still dispatching touch/drag input.
 	if _merge_in_progress or game_manager == null:
 		return
 	if source < 0 or target < 0 or source >= tiles.size() or target >= tiles.size():
 		return
-	if source == target or tiles[source].tier <= 0 or tiles[source].tier != tiles[target].tier:
+	if source == target:
+		return
+	if tiles[source].tier <= 0 or tiles[source].tier != tiles[target].tier:
 		return
 	_merge_in_progress = true
 	last_merged_index = target
+	call_deferred("_apply_merge_transaction", source, target)
+
+
+func _apply_merge_transaction(source: int, target: int) -> void:
+	if not is_inside_tree() or game_manager == null:
+		_merge_in_progress = false
+		return
+	if source < 0 or target < 0 or source >= tiles.size() or target >= tiles.size():
+		_merge_in_progress = false
+		return
+	# Re-check the live model: an auto-spawn or another action may have
+	# changed the board between the input event and this deferred call.
+	if game_manager.grid[source] <= 0 or game_manager.grid[source] != game_manager.grid[target]:
+		_merge_in_progress = false
+		return
 	var merged := game_manager.merge_tiles(source, target)
-	if merged and target < tiles.size() and is_instance_valid(tiles[target]):
+	if merged and target < tiles.size():
 		var tile := tiles[target]
-		tile.pivot_offset = tile.size * 0.5
-		tile.scale = Vector2(0.82, 0.82)
-		var tween := create_tween()
-		tween.tween_property(tile, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		if is_instance_valid(tile) and tile.is_inside_tree():
+			tile.pivot_offset = tile.size * 0.5
+			tile.scale = Vector2(0.82, 0.82)
+			var tween := create_tween()
+			tween.tween_property(tile, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_merge_in_progress = false
 
 # --- Tap-to-merge ------------------------------------------------------------
