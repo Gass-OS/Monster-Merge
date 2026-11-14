@@ -46,6 +46,14 @@ jobs:
           ANDROID_SDK_PATH="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/lib/android-sdk}}"
           test -x "$JAVA_HOME/bin/java"
           test -d "$ANDROID_SDK_PATH/platform-tools"
+          SDKMANAGER="$(find "$ANDROID_SDK_PATH/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n 1)"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_PATH" --licenses >/dev/null || true
+            "$SDKMANAGER" --sdk_root="$ANDROID_SDK_PATH" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          else
+            echo "Android sdkmanager not found under $ANDROID_SDK_PATH"
+            exit 1
+          fi
 
           keytool -genkeypair -noprompt -keyalg RSA -keysize 2048 -validity 10000 \
             -alias androiddebugkey -keystore "$HOME/debug.keystore" \
@@ -80,13 +88,29 @@ jobs:
           mkdir -p build
 
       - name: Import project and validate scripts
+        shell: bash
         run: |
-          godot --headless --editor --path . --import
-          godot --headless --path . --quit
+          set -euo pipefail
+          godot --headless --editor --path . --import 2>&1 | tee build/import.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" build/import.log; then
+            echo "Godot reported script/import errors."
+            exit 1
+          fi
+          godot --headless --path . --quit 2>&1 | tee build/validation.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" build/validation.log; then
+            echo "Godot reported runtime validation errors."
+            exit 1
+          fi
 
       - name: Export Android APK
+        shell: bash
         run: |
-          godot --headless --path . --export-debug "Android" build/MonsterMerge.apk
+          set -euo pipefail
+          godot --headless --path . --export-debug "Android" build/MonsterMerge.apk 2>&1 | tee build/export.log
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" build/export.log; then
+            echo "Godot reported export errors."
+            exit 1
+          fi
           test -s build/MonsterMerge.apk
           ls -lh build/MonsterMerge.apk
 
