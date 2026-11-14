@@ -288,7 +288,7 @@ func _queue_new_monster(tier: int) -> void:
 
 func _on_merge(tier: int, bonus: int) -> void:
 	if popup_layer == null or not is_instance_valid(popup_layer):
-		return;
+		return
 
 	_sfx("play_pop")
 	_sfx("play_ding")
