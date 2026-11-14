@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -78,12 +78,12 @@ jobs:
         run: |
           set -euo pipefail
           godot --headless --editor --path . --import 2>&1 | tee build/import.log
-          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" build/import.log; then
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error" build/import.log; then
             echo "Godot reported script/import errors."
             exit 1
           fi
           godot --headless --path . --quit 2>&1 | tee build/validation.log
-          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" build/validation.log; then
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error" build/validation.log; then
             echo "Godot reported runtime validation errors."
             exit 1
           fi

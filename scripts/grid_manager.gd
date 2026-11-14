@@ -4,6 +4,7 @@ class_name MonsterGridManager
 const TileScript = preload("res://scripts/monster_tile.gd")
 var game_manager: MonsterGameManager
 var tiles: Array[MonsterTile] = []
+var last_merged_index: int = -1
 
 func setup(manager: MonsterGameManager) -> void:
 	game_manager = manager
@@ -28,6 +29,9 @@ func refresh() -> void:
 		tiles[i].set_monster(game_manager.grid[i])
 
 func _on_merge_requested(source: int, target: int) -> void:
+	# Recorded BEFORE merge_tiles so ui_manager can read it from the
+	# merge_happened signal, which fires synchronously inside merge_tiles.
+	last_merged_index = target
 	if game_manager.merge_tiles(source, target):
 		var tile := tiles[target]
 		tile.scale = Vector2(0.72, 0.72)
