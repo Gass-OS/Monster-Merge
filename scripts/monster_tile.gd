@@ -27,11 +27,11 @@ func _gui_input(event: InputEvent) -> void:
 		if event.pressed:
 			_pressed = true
 			_dragging = false
-			_press_position = to_global(event.position)
+			_press_position = event.position
 		else:
-			_finish_drag(to_global(event.position))
+			_finish_drag(get_global_transform_with_canvas() * event.position)
 	elif event is InputEventScreenDrag and _pressed:
-		if event.position.distance_to(to_local(_press_position)) > 12.0:
+		if event.position.distance_to(_press_position) > 12.0:
 			_dragging = true
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
