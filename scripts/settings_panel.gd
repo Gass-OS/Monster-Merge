@@ -20,6 +20,13 @@ signal closed
 
 var _settings: SettingsManager = null
 var _built := false
+# v1.3.1 fix (BUG 1): the panel content lives in this internal CanvasLayer,
+# which does NOT follow the parent Control's visibility — toggling only
+# `visible` left the dim on screen swallowing every tap after DONE. So the
+# layer's own `visible` is toggled together with the Control's in every
+# open/close path (plus the visibility_changed backstop below, so plain
+# show()/hide() stay correct too).
+var _layer: CanvasLayer = null
 
 var _music_slider: HSlider
 var _music_toggle: Button
@@ -35,8 +42,17 @@ var _confirm2: ColorRect = null
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	visibility_changed.connect(_on_visibility_changed)
 	visible = false
 	_build()
+
+
+## Backstop: any path that flips this Control's `visible` (open(),
+## close_panel(), or a plain show()/hide()) keeps the internal layer in
+## sync, since a CanvasLayer ignores its parent's visibility on its own.
+func _on_visibility_changed() -> void:
+	if _layer != null:
+		_layer.visible = visible
 
 
 func setup(settings: SettingsManager) -> void:
@@ -47,16 +63,20 @@ func setup(settings: SettingsManager) -> void:
 func open() -> void:
 	_refresh_all()
 	visible = true
+	if _layer != null:
+		_layer.visible = true
 
 
 func close_panel() -> void:
 	visible = false
+	if _layer != null:
+		_layer.visible = false
 	_hide_confirms()
 	closed.emit()
 
 
 func is_open() -> bool:
-	return visible
+	return _layer != null and _layer.visible
 
 
 # --- Build -------------------------------------------------------------------
@@ -67,6 +87,8 @@ func _build() -> void:
 	_built = true
 	var layer := CanvasLayer.new()
 	layer.layer = 25
+	_layer = layer
+	_layer.visible = false
 	add_child(layer)
 	var dim := ColorRect.new()
 	dim.color = Color(0.01, 0.02, 0.05, 0.72)

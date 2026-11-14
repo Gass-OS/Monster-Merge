@@ -40,6 +40,11 @@ var _how_to_overlay: ColorRect = null  # In-game HOW TO PLAY (from pause).
 
 
 func _ready() -> void:
+	# BUG 2 (v1.3.1): stop the engine quitting the app on Android Back.
+	# SceneTree.quit_on_go_back defaults to true, so the engine exits on
+	# every back press no matter what _on_back_pressed() does. Must be
+	# the first thing here, before any other setup.
+	get_tree().quit_on_go_back = false
 	get_viewport().content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
 	_game_manager = GameManagerScript.new()
 	_game_manager.name = "GameManager"

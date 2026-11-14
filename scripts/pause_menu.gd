@@ -20,25 +20,43 @@ signal quit_to_menu_requested
 signal quit_game_requested
 
 var _built := false
+# v1.3.1 fix (BUG 1): same internal-CanvasLayer trap as SettingsPanel —
+# the layer does NOT follow the parent Control's visibility, so `visible`
+# alone never hid the pause dim. The layer's own `visible` is toggled
+# together with the Control's in every show/hide path (plus the
+# visibility_changed backstop below, so plain show()/hide() stay correct).
+var _layer: CanvasLayer = null
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	visibility_changed.connect(_on_visibility_changed)
 	visible = false
 	_build()
 
 
+## Backstop: any path that flips this Control's `visible` keeps the
+## internal layer in sync.
+func _on_visibility_changed() -> void:
+	if _layer != null:
+		_layer.visible = visible
+
+
 func show_menu() -> void:
 	visible = true
+	if _layer != null:
+		_layer.visible = true
 
 
 func hide_menu() -> void:
 	visible = false
+	if _layer != null:
+		_layer.visible = false
 
 
 func is_open() -> bool:
-	return visible
+	return _layer != null and _layer.visible
 
 
 ## Escape on desktop while paused: Main's _unhandled_input is paused with
@@ -61,6 +79,8 @@ func _build() -> void:
 	_built = true
 	var layer := CanvasLayer.new()
 	layer.layer = 20
+	_layer = layer
+	_layer.visible = false
 	add_child(layer)
 	var dim := ColorRect.new()
 	dim.color = Color(0.01, 0.02, 0.05, 0.72)
