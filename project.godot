@@ -3,7 +3,7 @@ config_version=5
 
 [application]
 config/name="Monster Merge"
-config/description="A cheerful monster evolution merge game."
+config/description="Hatch mysterious eggs, merge magical monsters, earn coins, complete daily missions and evolve eight legendary creatures in a colorful portrait mobile adventure."
 config/icon="res://icon.png"
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.4", "GL Compatibility")
