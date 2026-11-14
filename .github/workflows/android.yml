@@ -29,7 +29,11 @@ jobs:
           mkdir -p "$TEMPLATE_DIR" "$HOME/.config/godot" "$HOME/.local/share/godot"
 
           if [ ! -s "$TEMPLATE_DIR/android_debug.apk" ] || [ ! -s "$TEMPLATE_DIR/android_release.apk" ]; then
-            curl -fL --retry 3               "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"               -o /tmp/godot-templates.tpz
+            python3 - <<'PY'
+          import urllib.request
+          url = "https://github.com/godotengine/godot-builds/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz"
+          urllib.request.urlretrieve(url, "/tmp/godot-templates.tpz")
+          PY
             mkdir -p /tmp/godot-templates
             unzip -q /tmp/godot-templates.tpz -d /tmp/godot-templates
             cp -a /tmp/godot-templates/templates/. "$TEMPLATE_DIR/"
