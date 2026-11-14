@@ -113,7 +113,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --path . --export-debug "Android" build/MonsterMerge.apk 2>&1 | tee build/export.log
+          # Pass all three debug-signing values explicitly; Godot requires them as a complete set.
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/debug.keystore"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
+          godot --headless --verbose --path . --export-debug "Android" build/MonsterMerge.apk 2>&1 | tee build/export.log
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|ERROR:" build/export.log; then
             echo "Godot reported export errors."
             exit 1
