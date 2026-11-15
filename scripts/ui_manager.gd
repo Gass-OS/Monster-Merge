@@ -7,6 +7,8 @@ const BackgroundFXScript = preload("res://scripts/background_fx.gd")
 const RingBurstScript = preload("res://scripts/ring_burst.gd")
 const ConfettiFXScript = preload("res://scripts/confetti_fx.gd")
 const StarGlowScript = preload("res://scripts/star_glow.gd")
+# --- v1.3 Missions / Daily Gift / Achievements (Worker B) -------------------
+const MissionsManagerScript = preload("res://scripts/missions_manager.gd")
 const NAMES := ["Blue Spotted Egg", "Cute Green Slime", "Baby Green Dino", "Winged Flame Wyrm", "Golden Phoenix", "Crystal Unicorn", "Robo-Rex", "Cosmic King Dragon"]
 var manager: MonsterGameManager
 var grid: MonsterGridManager
@@ -16,15 +18,15 @@ var board_panel: PanelContainer
 var next_label: Label
 var progress: ProgressBar
 var spawn_button: Button
-var upgrade_button: Button
-var boss_panel: BossPanel
-var hint_label: Label
-var _shop_rows: VBoxContainer = null
-var _shop_balance: Label = null
-var _shop_buttons: Dictionary = {}
-var _last_hint: String = ""
 var popup_layer: CanvasLayer
 var _content_margin: MarginContainer
+# --- v1.3 Missions / Daily Gift / Achievements (Worker B) -------------------
+var missions_manager: MissionsManager
+var _missions_button: Button
+var _gift_button: Button
+# --- v1.3 integration: theme + gallery pose toggle --------------------------
+var _bg: BackgroundFX = null
+var _gallery_show_alt: bool = false
 var _board_shake: Tween
 var _margin_shake: Tween
 
@@ -33,39 +35,23 @@ func setup(game_manager: MonsterGameManager) -> void:
 	_build_interface()
 	manager.coins_changed.connect(_update_coins)
 	manager.state_changed.connect(_update_hud)
-	manager.merge_happened.connect(_on_merge)
-	manager.monster_unlocked.connect(_show_new_monster)
-	manager.boss_defeated.connect(_on_boss_defeated)
-	manager.boss_failed.connect(_on_boss_failed)
-	manager.upgrades_changed.connect(_on_shop_dirty)
-	manager.coins_changed.connect(_on_shop_coins)
+	manager.merge_happened.connect(_queue_merge_effects)
+	manager.monster_unlocked.connect(_queue_new_monster)
+	# --- v1.3 Missions / Daily Gift / Achievements (Worker B) --------------
+	_setup_missions()
 	_update_hud()
-	if manager.pending_offline_reward > 0:
-		_show_offline_popup.call_deferred()
-
-func _process(_delta: float) -> void:
-	if manager == null or hint_label == null:
-		return
-	var text := ""
-	if manager.is_board_full():
-		text = "Board full - merge monsters to make room!"
-	else:
-		text = "Next egg in %.1fs   |   Drag to merge or move" % maxf(0.0, manager.get_spawn_interval() - manager.spawn_clock)
-	if text != _last_hint:
-		_last_hint = text
-		hint_label.text = text
 
 func _build_interface() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
-	var bg := BackgroundFXScript.new()
-	add_child(bg)
+	_bg = BackgroundFXScript.new()
+	add_child(_bg)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left", 24)
 	margin.add_theme_constant_override("margin_right", 24)
-	margin.add_theme_constant_override("margin_top", 60)
-	margin.add_theme_constant_override("margin_bottom", 40)
+	margin.add_theme_constant_override("margin_top", 24)
+	margin.add_theme_constant_override("margin_bottom", 24)
 	add_child(margin)
 	_content_margin = margin
 	var layout := VBoxContainer.new()
@@ -75,59 +61,66 @@ func _build_interface() -> void:
 	var top := HBoxContainer.new()
 	top.alignment = BoxContainer.ALIGNMENT_CENTER
 	layout.add_child(top)
-	coin_panel = _panel(Color("#121826"), 18)
+	coin_panel = _panel(Color("#fff0a9"), 22)
 	coin_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(coin_panel)
-	var coin_row := HBoxContainer.new()
-	coin_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	coin_row.add_theme_constant_override("separation", 10)
-	coin_panel.add_child(coin_row)
-	var coin_icon := CoinIcon.new()
-	coin_icon.custom_minimum_size = Vector2(34, 34)
-	coin_row.add_child(coin_icon)
 	coin_label = Label.new()
-	coin_label.text = "0"
+	coin_label.text = "🪙  0"
 	coin_label.add_theme_font_size_override("font_size", 28)
-	coin_label.add_theme_color_override("font_color", Color("#ffd36b"))
+	coin_label.add_theme_color_override("font_color", Color("#714319"))
 	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	coin_row.add_child(coin_label)
+	coin_panel.add_child(coin_label)
 	var gallery_button := Button.new()
-	gallery_button.text = "GALLERY"
+	gallery_button.text = "🏆 GALLERY"
 	gallery_button.custom_minimum_size = Vector2(150, 58)
-	_style_button(gallery_button, Color("#1d2a44"))
+	_style_button(gallery_button, Color("#287e8b"))
 	gallery_button.pressed.connect(_show_gallery)
 	top.add_child(gallery_button)
+	# --- v1.3 Missions / Daily Gift buttons (Worker B) ----------------------
+	# Both open the missions panel (gift card sits at the top of it).
+	# _missions_button gets a ❗ badge when a reward is ready to claim;
+	# _gift_button shows ✓ once today's gift is claimed.
+	var missions_button := Button.new()
+	missions_button.text = "📋"
+	missions_button.custom_minimum_size = Vector2(64, 58)
+	missions_button.add_theme_font_size_override("font_size", 26)
+	_style_button(missions_button, Color("#7b1fa2"))
+	top.add_child(missions_button)
+	_missions_button = missions_button
+	var gift_button := Button.new()
+	gift_button.text = "🎁"
+	gift_button.custom_minimum_size = Vector2(64, 58)
+	gift_button.add_theme_font_size_override("font_size", 26)
+	_style_button(gift_button, Color("#b8860b"))
+	top.add_child(gift_button)
+	_gift_button = gift_button
 
 	var title := Label.new()
 	title.text = "MONSTER MERGE"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 38)
-	title.add_theme_color_override("font_color", Color("#f1e7c8"))
-	title.add_theme_color_override("font_shadow_color", Color("#8a1422"))
+	title.add_theme_color_override("font_color", Color("#ffffff"))
+	title.add_theme_color_override("font_shadow_color", Color("#287d9a"))
 	title.add_theme_constant_override("shadow_offset_x", 3)
 	title.add_theme_constant_override("shadow_offset_y", 4)
 	layout.add_child(title)
 	next_label = Label.new()
 	next_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	next_label.add_theme_font_size_override("font_size", 23)
-	next_label.add_theme_color_override("font_color", Color("#9fb4d8"))
+	next_label.add_theme_color_override("font_color", Color("#164d69"))
 	layout.add_child(next_label)
 	progress = ProgressBar.new()
 	progress.custom_minimum_size.y = 22
 	progress.max_value = 8
 	progress.show_percentage = false
-	progress.add_theme_stylebox_override("background", _flat_style(Color("#10141f"), 12, Color("#232c3d"), 2))
-	progress.add_theme_stylebox_override("fill", _flat_style(Color("#e8a93a"), 12))
+	progress.add_theme_stylebox_override("background", _flat_style(Color("#d4f2f4"), 12))
+	progress.add_theme_stylebox_override("fill", _flat_style(Color("#ffc64b"), 12))
 	layout.add_child(progress)
-
-	boss_panel = BossPanel.new()
-	layout.add_child(boss_panel)
-	boss_panel.setup(manager)
 
 	board_panel = PanelContainer.new()
 	board_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	board_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	board_panel.add_theme_stylebox_override("panel", _flat_style(Color("#0b0f18"), 24, Color("#7a5a22"), 6))
+	board_panel.add_theme_stylebox_override("panel", _flat_style(Color("#168c91"), 28, Color("#0c6976"), 8))
 	layout.add_child(board_panel)
 	var board_margin := MarginContainer.new()
 	board_margin.add_theme_constant_override("margin_left", 12)
@@ -141,34 +134,35 @@ func _build_interface() -> void:
 	board_margin.add_child(grid)
 	grid.setup(manager)
 
-	hint_label = Label.new()
-	hint_label.text = "Drag matching monsters together to evolve!"
-	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint_label.add_theme_font_size_override("font_size", 17)
-	hint_label.add_theme_color_override("font_color", Color("#7f8fae"))
-	layout.add_child(hint_label)
-	var bottom := HBoxContainer.new()
-	bottom.add_theme_constant_override("separation", 12)
-	layout.add_child(bottom)
+	var hint := Label.new()
+	hint.text = "DRAG matching monsters together to evolve!"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 17)
+	hint.add_theme_color_override("font_color", Color("#15556c"))
+	layout.add_child(hint)
 	spawn_button = Button.new()
-	spawn_button.text = "SPAWN EGG"
-	spawn_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spawn_button.text = "🥚   SPAWN EGG"
 	spawn_button.custom_minimum_size = Vector2(0, 92)
 	spawn_button.add_theme_font_size_override("font_size", 31)
 	_style_glossy_button(spawn_button)
 	spawn_button.pressed.connect(_on_spawn_pressed)
-	bottom.add_child(spawn_button)
-	upgrade_button = Button.new()
-	upgrade_button.text = "UPGRADES"
-	upgrade_button.custom_minimum_size = Vector2(190, 92)
-	upgrade_button.add_theme_font_size_override("font_size", 24)
-	_style_button(upgrade_button, Color("#7a5a22"))
-	upgrade_button.pressed.connect(_show_upgrades)
-	bottom.add_child(upgrade_button)
+	layout.add_child(spawn_button)
 
 	popup_layer = CanvasLayer.new()
 	popup_layer.layer = 10
 	add_child(popup_layer)
+
+## v1.3 integration: repaint the board sky when the theme changes.
+func apply_theme(theme_id: String) -> void:
+	if _bg != null:
+		_bg.apply_theme(theme_id)
+
+
+## v1.3 integration: rainbow celebration on the board sky.
+func show_rainbow() -> void:
+	if _bg != null:
+		_bg.show_rainbow()
+
 
 func _panel(color: Color, radius: int) -> PanelContainer:
 	var p := PanelContainer.new()
@@ -184,7 +178,11 @@ func _flat_style(color: Color, radius: int, border: Color = Color.TRANSPARENT, b
 	return style
 
 func _style_button(button: Button, color: Color) -> void:
-	UIStyle.style_button(button, color)
+	button.add_theme_stylebox_override("normal", _flat_style(color, 22, color.darkened(0.2), 4))
+	button.add_theme_stylebox_override("hover", _flat_style(color.lightened(0.08), 22, color.darkened(0.2), 4))
+	button.add_theme_stylebox_override("pressed", _flat_style(color.darkened(0.12), 22, color.darkened(0.25), 4))
+	button.add_theme_color_override("font_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
 
 # --- Glossy SPAWN EGG button ------------------------------------------------
 # Bakes a rounded vertical orange gradient with a white shine stripe across
@@ -220,7 +218,7 @@ func _make_glossy_texture(top: Color, mid: Color, bottom: Color) -> ImageTexture
 	return ImageTexture.create_from_image(img)
 
 func _style_glossy_button(button: Button) -> void:
-	var tex := _make_glossy_texture(Color("#e0414f"), Color("#a8202e"), Color("#6b121c"))
+	var tex := _make_glossy_texture(Color("#ffb347"), Color("#ff8c32"), Color("#f97316"))
 	var normal := StyleBoxTexture.new()
 	normal.texture = tex
 	normal.content_margin_left = 16
@@ -247,12 +245,12 @@ func _sfx(method_name: String) -> void:
 		sm.call(method_name)
 
 func _update_coins(value: int) -> void:
-	coin_label.text = _format_number(value)
+	coin_label.text = "🪙  %s" % _format_number(value)
 
 func _update_hud() -> void:
 	if manager == null:
 		return
-	coin_label.text = _format_number(manager.coins)
+	coin_label.text = "🪙  %s" % _format_number(manager.coins)
 	next_label.text = manager.get_next_tier_text()
 	progress.value = manager.highest_unlocked
 
@@ -265,8 +263,11 @@ func _format_number(value: int) -> String:
 
 func _on_spawn_pressed() -> void:
 	_sfx("play_click")
+	# v1.3 integration: cute voice blip on spawn.
+	var sm := get_node_or_null("/root/SoundManager")
+	if sm != null and sm.has_method("play_blip"):
+		sm.call("play_blip", 1)
 	manager.spawn_monster()
-	spawn_button.pivot_offset = spawn_button.size * 0.5
 	var tween := create_tween()
 	tween.tween_property(spawn_button, "scale", Vector2(0.94, 0.94), 0.07)
 	tween.tween_property(spawn_button, "scale", Vector2.ONE, 0.15).set_trans(Tween.TRANS_BACK)
@@ -275,7 +276,20 @@ func _on_spawn_pressed() -> void:
 # Ring burst + flying coins + DING badge + big bouncy toast + board shake,
 # on top of the existing bouncy scale-up in grid_manager.
 
+# Defer heavy visual work until the tile input/merge callback has finished.
+# This avoids creating popup trees and tweens in the middle of touch dispatch.
+func _queue_merge_effects(tier: int, bonus: int) -> void:
+	call_deferred("_on_merge", tier, bonus)
+
+
+func _queue_new_monster(tier: int) -> void:
+	call_deferred("_show_new_monster", tier)
+
+
 func _on_merge(tier: int, bonus: int) -> void:
+	if popup_layer == null or not is_instance_valid(popup_layer):
+		return
+
 	_sfx("play_pop")
 	_sfx("play_ding")
 	var tile_center := Vector2(size.x * 0.5, 620.0)
@@ -296,7 +310,7 @@ func _on_merge(tier: int, bonus: int) -> void:
 			coin_target, float(i) * 0.07, i == 3)
 	# Small "DING!" badge popping above the tile.
 	var ding := Label.new()
-	ding.text = "DING!"
+	ding.text = "DING! 🔔"
 	ding.add_theme_font_size_override("font_size", 24)
 	ding.add_theme_color_override("font_color", Color("#ffe27b"))
 	ding.add_theme_color_override("font_shadow_color", Color("#854c12"))
@@ -316,7 +330,7 @@ func _on_merge(tier: int, bonus: int) -> void:
 	dtw.tween_callback(ding.queue_free)
 	# Big bouncy toast.
 	var toast := Label.new()
-	toast.text = "POP!   +%d COINS!" % bonus
+	toast.text = "POP!   +%d COINS!   ✨" % bonus
 	toast.add_theme_font_size_override("font_size", 36)
 	toast.add_theme_color_override("font_color", Color("#fff36b"))
 	toast.add_theme_color_override("font_shadow_color", Color("#854c12"))
@@ -340,11 +354,6 @@ func _on_merge(tier: int, bonus: int) -> void:
 	_shake_board()
 	if tier >= 5:
 		_flash(MonsterTile.GLOW_COLORS[clampi(tier - 1, 0, 7)])
-	if tier >= 6:
-		Engine.time_scale = 0.35
-		get_tree().create_timer(0.25, true, false, true).timeout.connect(func() -> void:
-			Engine.time_scale = 1.0
-		)
 
 func _flash(col: Color) -> void:
 	var f := ColorRect.new()
@@ -357,11 +366,11 @@ func _flash(col: Color) -> void:
 	tw.tween_callback(f.queue_free)
 
 func _fly_coin(from: Vector2, to: Vector2, delay: float, is_last: bool) -> void:
-	var coin := CoinIcon.new()
-	coin.custom_minimum_size = Vector2(40, 40)
-	coin.size = Vector2(40, 40)
-	coin.pivot_offset = Vector2(20, 20)
+	var coin := Label.new()
+	coin.text = "🪙"
+	coin.add_theme_font_size_override("font_size", 30)
 	coin.position = from
+	coin.size = Vector2(40, 40)
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	popup_layer.add_child(coin)
 	var control := Vector2((from.x + to.x) * 0.5, minf(from.y, to.y) - 160.0)
@@ -415,11 +424,16 @@ func _shake_board() -> void:
 		)
 
 func _show_new_monster(tier: int) -> void:
+	if tier < 1 or tier > NAMES.size() or popup_layer == null or not is_instance_valid(popup_layer):
+		return
 	_sfx("play_unlock")
 	var overlay := _make_overlay()
 	var card := _popup_card(overlay)
-	var heading := _popup_label("NEW MONSTER FOUND!", 27, Color("#ffdf58"))
+	var heading := _popup_label("★  NEW MONSTER FOUND!  ★", 27, Color("#ffdf58"))
 	card.add_child(heading)
+	# Use the lightweight animated tile preview here. The full-resolution
+	# gallery artwork remains available in the Gallery, not loaded on every
+	# first-time merge (keeps Android memory use predictable).
 	# Glowing golden star behind the new monster.
 	var stage := Control.new()
 	stage.custom_minimum_size = Vector2(220, 210)
@@ -430,22 +444,29 @@ func _show_new_monster(tier: int) -> void:
 	preview.set_monster(tier)
 	preview.custom_minimum_size = Vector2(180, 190)
 	preview.size = Vector2(180, 190)
-	preview.set_anchors_preset(Control.PRESET_CENTER)
+	preview.anchor_left = 0.5
+	preview.anchor_top = 0.5
+	preview.anchor_right = 0.5
+	preview.anchor_bottom = 0.5
+	preview.offset_left = -90.0
+	preview.offset_top = -95.0
+	preview.offset_right = 90.0
+	preview.offset_bottom = 95.0
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(preview)
 	card.add_child(stage)
 	card.add_child(_popup_label("TIER %d: %s" % [tier, NAMES[tier - 1]], 22, Color.WHITE))
-	card.add_child(_popup_label("Makes extra coins every second!", 17, Color("#9fb4d8")))
+	card.add_child(_popup_label("Makes extra coins every second!", 17, Color("#d5f6d9")))
 	var ok := Button.new()
 	ok.text = "OK!"
 	ok.custom_minimum_size.y = 58
-	_style_button(ok, Color("#2a6b4a"))
+	_style_button(ok, Color("#36b95f"))
 	ok.pressed.connect(overlay.queue_free)
 	card.add_child(ok)
 	var gallery := Button.new()
 	gallery.text = "VIEW GALLERY"
 	gallery.custom_minimum_size.y = 50
-	_style_button(gallery, Color("#1d2a44"))
+	_style_button(gallery, Color("#287eaa"))
 	gallery.pressed.connect(func():
 		overlay.queue_free()
 		_show_gallery()
@@ -460,6 +481,17 @@ func _show_gallery() -> void:
 	var overlay := _make_overlay()
 	var card := _popup_card(overlay)
 	card.add_child(_popup_label("MONSTER GALLERY", 28, Color("#ffe27b")))
+	# v1.3 integration: alternate gallery poses (second artwork per tier).
+	var pose_btn := Button.new()
+	pose_btn.text = "🎨  NEXT POSE: ALT ART" if not _gallery_show_alt else "🎨  NEXT POSE: CLASSIC ART"
+	pose_btn.custom_minimum_size.y = 48
+	_style_button(pose_btn, Color("#7b1fa2"))
+	pose_btn.pressed.connect(func() -> void:
+		_gallery_show_alt = not _gallery_show_alt
+		overlay.queue_free()
+		_show_gallery()
+	)
+	card.add_child(pose_btn)
 	var gallery_grid := GridContainer.new()
 	gallery_grid.columns = 2
 	gallery_grid.add_theme_constant_override("h_separation", 10)
@@ -479,7 +511,23 @@ func _show_gallery() -> void:
 		tile.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if manager.discovered[i]:
-			item.add_child(tile)
+			# Big showcase art for discovered tiers (small tile as fallback).
+			# v1.3 integration: alternate pose when the toggle is on.
+			var art: Texture2D = null
+			if _gallery_show_alt:
+				art = GalleryArt.load_alt_showcase(i + 1)
+			if art == null:
+				art = GalleryArt.load_showcase(i + 1)
+			if art != null:
+				var big := TextureRect.new()
+				big.texture = art
+				big.custom_minimum_size = Vector2(190, 190)
+				big.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+				big.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+				big.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+				item.add_child(big)
+			else:
+				item.add_child(tile)
 			var name_label := Label.new()
 			name_label.text = NAMES[i]
 			name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -500,13 +548,13 @@ func _show_gallery() -> void:
 	var close := Button.new()
 	close.text = "CLOSE"
 	close.custom_minimum_size.y = 54
-	_style_button(close, Color("#8a1c27"))
+	_style_button(close, Color("#ff8c32"))
 	close.pressed.connect(overlay.queue_free)
 	card.add_child(close)
 
 func _make_overlay() -> ColorRect:
 	var overlay := ColorRect.new()
-	overlay.color = Color(0.01, 0.01, 0.03, 0.9)
+	overlay.color = Color(0.04, 0.12, 0.2, 0.84)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	popup_layer.add_child(overlay)
 	return overlay
@@ -516,7 +564,7 @@ func _popup_card(overlay: ColorRect) -> VBoxContainer:
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
 	var frame := PanelContainer.new()
-	frame.add_theme_stylebox_override("panel", _flat_style(Color("#0d121c"), 22, Color("#b8923a"), 4))
+	frame.add_theme_stylebox_override("panel", _flat_style(Color("#24677b"), 22, Color("#f8d66b"), 5))
 	center.add_child(frame)
 	var card := VBoxContainer.new()
 	card.custom_minimum_size = Vector2(480, 0)
@@ -539,189 +587,59 @@ func _popup_label(value: String, font_size: int, color: Color) -> Label:
 	label.add_theme_color_override("font_color", color)
 	return label
 
-# --- Upgrades shop ------------------------------------------------------------
+# --- v1.3 Missions / Daily Gift / Achievements (Worker B) -------------------
+# Entry points: the 📋 MISSIONS and 🎁 DAILY GIFT buttons in the top bar.
+# The panel and the gift-box overlay are built and managed by
+# MissionsManager; this file only hosts its buttons and wires it to the
+# board grid + popup layer. Coordinator wiring for the casino/boss notify
+# calls lives in missions_manager.gd's header comment.
+# NOTE: the missions panel is added to popup_layer (a child of this UI),
+# so it is only visible while the board UI is visible — a menu worker that
+# wants the panel from the main menu should call open_missions_panel()
+# after showing the board UI (or reparent the panel).
 
-func _show_upgrades() -> void:
-	_sfx("play_click")
-	var overlay := _make_overlay()
-	var card := _popup_card(overlay)
-	card.add_child(_popup_label("UPGRADES", 30, Color("#ffe27b")))
-	var balance_row := _coin_row(manager.coins, 30)
-	_shop_balance = balance_row.get_child(1) as Label
-	card.add_child(balance_row)
-	_shop_rows = VBoxContainer.new()
-	_shop_rows.add_theme_constant_override("separation", 10)
-	card.add_child(_shop_rows)
-	overlay.tree_exited.connect(func() -> void:
-		_shop_rows = null
-		_shop_balance = null
-		_shop_buttons.clear()
-	)
-	_populate_shop()
-	var close := Button.new()
-	close.text = "CLOSE"
-	close.custom_minimum_size.y = 54
-	_style_button(close, Color("#8a1c27"))
-	close.pressed.connect(overlay.queue_free)
-	card.add_child(close)
-
-func _coin_row(amount: int, font_size: int) -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 10)
-	var icon := CoinIcon.new()
-	icon.custom_minimum_size = Vector2(font_size + 6, font_size + 6)
-	row.add_child(icon)
-	var label := Label.new()
-	label.text = _format_number(amount)
-	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", Color("#ffd36b"))
-	row.add_child(label)
-	return row
-
-func _populate_shop() -> void:
-	if _shop_rows == null or not is_instance_valid(_shop_rows):
+func _setup_missions() -> void:
+	if missions_manager != null and is_instance_valid(missions_manager):
 		return
-	_shop_buttons.clear()
-	for child in _shop_rows.get_children():
-		_shop_rows.remove_child(child)
-		child.queue_free()
-	for id in MonsterGameManager.UPGRADE_ORDER:
-		var info: Dictionary = MonsterGameManager.UPGRADES[id]
-		var level := manager.get_upgrade_level(id)
-		var maxed := manager.is_upgrade_maxed(id)
-		var row_panel := PanelContainer.new()
-		row_panel.add_theme_stylebox_override("panel", _flat_style(Color("#121826"), 14, Color("#232c3d"), 2))
-		var pad := MarginContainer.new()
-		pad.add_theme_constant_override("margin_left", 12)
-		pad.add_theme_constant_override("margin_right", 10)
-		pad.add_theme_constant_override("margin_top", 8)
-		pad.add_theme_constant_override("margin_bottom", 8)
-		row_panel.add_child(pad)
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 10)
-		pad.add_child(row)
-		var text_box := VBoxContainer.new()
-		text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		text_box.custom_minimum_size = Vector2(230, 0)
-		row.add_child(text_box)
-		var title := Label.new()
-		title.text = "%s   Lv %d/%d" % [info["name"], level, int(info["max"])]
-		title.add_theme_font_size_override("font_size", 20)
-		title.add_theme_color_override("font_color", Color("#f1e7c8"))
-		text_box.add_child(title)
-		var effect := Label.new()
-		effect.text = manager.get_upgrade_effect_text(id)
-		effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		effect.add_theme_font_size_override("font_size", 14)
-		effect.add_theme_color_override("font_color", Color("#9fb4d8"))
-		text_box.add_child(effect)
-		var buy := Button.new()
-		buy.custom_minimum_size = Vector2(128, 60)
-		buy.add_theme_font_size_override("font_size", 20)
-		if maxed:
-			buy.text = "MAX"
-			buy.disabled = true
-		else:
-			var cost := manager.get_upgrade_cost(id)
-			buy.text = "BUY\n%s" % _format_number(cost)
-			buy.disabled = manager.coins < cost
-		_style_button(buy, Color("#2a6b4a"))
-		var upgrade_id: String = id
-		buy.pressed.connect(func() -> void:
-			if manager.buy_upgrade(upgrade_id):
-				_sfx("play_unlock")
-			else:
-				_sfx("play_click")
-		)
-		row.add_child(buy)
-		_shop_buttons[id] = buy
-		_shop_rows.add_child(row_panel)
+	var mm = MissionsManagerScript.new()
+	add_child(mm)
+	missions_manager = mm
+	mm.setup(manager, grid, popup_layer, self)
+	mm.missions_changed.connect(_refresh_mission_buttons)
+	if _missions_button != null:
+		_missions_button.pressed.connect(open_missions_panel)
+	if _gift_button != null:
+		_gift_button.pressed.connect(open_missions_panel)
+	_refresh_mission_buttons()
 
-func _on_shop_dirty() -> void:
-	_populate_shop()
 
-func _on_shop_coins(_value: int) -> void:
-	# Update balance and affordability in place (no rebuild, so taps are never lost).
-	if _shop_balance != null and is_instance_valid(_shop_balance):
-		_shop_balance.text = _format_number(manager.coins)
-	for id in _shop_buttons.keys():
-		var button: Button = _shop_buttons[id]
-		if is_instance_valid(button) and not manager.is_upgrade_maxed(id):
-			button.disabled = manager.coins < manager.get_upgrade_cost(id)
+## Coordinator override: replace the internally created MissionsManager
+## with an externally built one (e.g. one shared with the main menu).
+## Pass a FRESH instance — setup() is a no-op on an already-set-up one.
+func attach_missions_manager(mm: MissionsManager) -> void:
+	if missions_manager != null and is_instance_valid(missions_manager):
+		missions_manager.queue_free()
+	missions_manager = mm
+	if not mm.is_inside_tree():
+		add_child(mm)
+	mm.setup(manager, grid, popup_layer, self)
+	mm.missions_changed.connect(_refresh_mission_buttons)
+	_refresh_mission_buttons()
 
-# --- Boss results & offline reward ---------------------------------------------
 
-func _on_boss_defeated(level: int, reward: int) -> void:
-	_sfx("play_unlock")
-	_flash(Color("#ffcc33"))
-	var overlay := _make_overlay()
-	var card := _popup_card(overlay)
-	card.add_child(_popup_label("BOSS DEFEATED!", 32, Color("#ffdf58")))
-	card.add_child(_popup_label(manager.get_boss_name_for(level), 22, Color.WHITE))
-	card.add_child(_coin_row(reward, 38))
-	card.add_child(_popup_label("Next: %s" % manager.get_boss_name_for(level + 1), 18, Color("#9fb4d8")))
-	var ok := Button.new()
-	ok.text = "CONTINUE"
-	ok.custom_minimum_size.y = 58
-	_style_button(ok, Color("#2a6b4a"))
-	ok.pressed.connect(overlay.queue_free)
-	card.add_child(ok)
-	var confetti := ConfettiFXScript.new()
-	overlay.add_child(confetti)
-
-func _on_boss_failed(level: int) -> void:
+func open_missions_panel() -> void:
 	_sfx("play_click")
-	_flash(Color("#ff3344"))
-	var overlay := _make_overlay()
-	var card := _popup_card(overlay)
-	card.add_child(_popup_label("DEFEAT", 34, Color("#ff5b6b")))
-	card.add_child(_popup_label("%s survived. Merge into stronger monsters or buy Army Power, then try again." % manager.get_boss_name_for(level), 19, Color("#9fb4d8")))
-	var again := Button.new()
-	again.text = "TRY AGAIN"
-	again.custom_minimum_size.y = 58
-	_style_button(again, Color("#a8202e"))
-	again.pressed.connect(func() -> void:
-		overlay.queue_free()
-		manager.start_boss_fight()
-	)
-	card.add_child(again)
-	var shop := Button.new()
-	shop.text = "UPGRADES"
-	shop.custom_minimum_size.y = 50
-	_style_button(shop, Color("#7a5a22"))
-	shop.pressed.connect(func() -> void:
-		overlay.queue_free()
-		_show_upgrades()
-	)
-	card.add_child(shop)
-	var close := Button.new()
-	close.text = "CLOSE"
-	close.custom_minimum_size.y = 46
-	_style_button(close, Color("#1d2a44"))
-	close.pressed.connect(overlay.queue_free)
-	card.add_child(close)
+	if missions_manager != null:
+		missions_manager.open_panel()
 
-func _show_offline_popup() -> void:
-	if manager.pending_offline_reward <= 0:
+
+func _refresh_mission_buttons() -> void:
+	if _missions_button == null or _gift_button == null:
 		return
-	var overlay := _make_overlay()
-	var card := _popup_card(overlay)
-	card.add_child(_popup_label("WELCOME BACK!", 32, Color("#ffe27b")))
-	card.add_child(_popup_label("Your monsters kept working while you were away (%s)." % _format_time(manager.pending_offline_seconds), 18, Color("#9fb4d8")))
-	card.add_child(_coin_row(manager.pending_offline_reward, 40))
-	var collect := Button.new()
-	collect.text = "COLLECT"
-	collect.custom_minimum_size.y = 60
-	_style_button(collect, Color("#2a6b4a"))
-	collect.pressed.connect(func() -> void:
-		_sfx("play_unlock")
-		manager.claim_offline_reward()
-		overlay.queue_free()
-	)
-	card.add_child(collect)
-
-func _format_time(seconds: int) -> String:
-	if seconds >= 3600:
-		return "%dh %dm" % [seconds / 3600, (seconds % 3600) / 60]
-	return "%d min" % maxi(1, seconds / 60)
+	if missions_manager == null:
+		_missions_button.text = "📋"
+		_gift_button.text = "🎁"
+		return
+	var badge := missions_manager.pending_badge_count()
+	_missions_button.text = "📋❗" if badge > 0 else "📋"
+	_gift_button.text = "🎁✓" if not missions_manager.gift_available_today() else "🎁"
