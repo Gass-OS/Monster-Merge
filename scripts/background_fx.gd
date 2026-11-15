@@ -25,7 +25,21 @@ class_name BackgroundFX
 
 const THEME_NAMES := ["sunny", "sunset", "night", "candy", "shadow"]
 
+# Stage backgrounds: the sky tint + signature particles change with the
+# highest monster tier reached (stage 1..8).
+const STAGE_NAMES := ["Sunny Meadow", "Slime Swamp", "Dino Valley", "Flame Peak",
+	"Phoenix Sky", "Crystal Grove", "Robo City", "Cosmic Realm"]
+const STAGE_TINTS := [Color(0, 0, 0, 0), Color("#2fbf6b"), Color("#d98a2b"), Color("#e8452c"),
+	Color("#b04dff"), Color("#2fd6e8"), Color("#3a6bff"), Color("#7a2bd6")]
+# Particle drift velocity per stage (index 0 = stage 1, unused).
+const STAGE_VEL := [Vector2.ZERO, Vector2(0, -26), Vector2(-12, 38), Vector2(0, -60),
+	Vector2(10, -20), Vector2(0, 14), Vector2(0, 190), Vector2(-140, 90)]
+
 var current_theme: String = "sunny"
+var _stage: int = 1
+var _prev_stage: int = 1
+var _stage_fade: float = 1.0
+var _stage_fx: Array = []
 
 var _time := 0.0
 var _gradient: GradientTexture2D
@@ -89,6 +103,109 @@ func apply_theme(theme_name: String) -> String:
 	_rebuild_gradient()
 	queue_redraw()
 	return current_theme
+
+## Called by the UI whenever the highest unlocked tier changes.
+func set_stage(stage: int) -> void:
+	var s := clampi(stage, 1, STAGE_NAMES.size())
+	if s == _stage:
+		return
+	_prev_stage = _stage
+	_stage = s
+	_populate_stage_fx()
+	if is_inside_tree():
+		_stage_fade = 0.0
+		var tw := create_tween()
+		tw.tween_property(self, "_stage_fade", 1.0, 1.6)
+	else:
+		_stage_fade = 1.0
+	queue_redraw()
+
+func get_stage() -> int:
+	return _stage
+
+func _populate_stage_fx() -> void:
+	_stage_fx.clear()
+	if _stage <= 1:
+		return
+	var w := maxf(size.x, 720.0)
+	var h := maxf(size.y, 1280.0)
+	for i in range(26):
+		_stage_fx.append({
+			"pos": Vector2(randf_range(0.0, w), randf_range(0.0, h)),
+			"speed": 0.6 + randf() * 0.9,
+			"size": 2.0 + randf() * 4.0,
+			"phase": randf() * TAU,
+		})
+
+func _update_stage_fx(delta: float) -> void:
+	if _stage <= 1:
+		return
+	var vel: Vector2 = STAGE_VEL[_stage - 1]
+	var w := maxf(size.x, 720.0)
+	var h := maxf(size.y, 1280.0)
+	for p in _stage_fx:
+		var pos: Vector2 = p["pos"]
+		pos += vel * float(p["speed"]) * delta
+		if pos.y < -30.0:
+			pos.y = h + 30.0
+		elif pos.y > h + 30.0:
+			pos.y = -30.0
+		if pos.x < -30.0:
+			pos.x = w + 30.0
+		elif pos.x > w + 30.0:
+			pos.x = -30.0
+		p["pos"] = pos
+
+func _draw_stage_tint() -> void:
+	var strength := 0.16 if _is_shadow else 0.22
+	var full := Rect2(Vector2.ZERO, size)
+	if _stage > 1:
+		var tint: Color = STAGE_TINTS[_stage - 1]
+		draw_rect(full, Color(tint, strength * _stage_fade))
+	if _prev_stage > 1 and _stage_fade < 1.0:
+		var prev: Color = STAGE_TINTS[_prev_stage - 1]
+		draw_rect(full, Color(prev, strength * (1.0 - _stage_fade)))
+
+func _draw_stage_fx() -> void:
+	if _stage <= 1:
+		return
+	var vel: Vector2 = STAGE_VEL[_stage - 1]
+	for p in _stage_fx:
+		var pos: Vector2 = p["pos"]
+		var r: float = p["size"]
+		var ph: float = p["phase"]
+		var tw := 0.5 + 0.5 * sin(_time * 3.0 + ph)
+		match _stage:
+			2:
+				# Swamp bubbles.
+				draw_arc(pos, r * 2.0, 0.0, TAU, 16, Color(0.7, 1.0, 0.8, 0.55), 1.6, true)
+				draw_circle(pos + Vector2(-r * 0.6, -r * 0.6), r * 0.4, Color(1, 1, 1, 0.6))
+			3:
+				# Drifting autumn leaves.
+				draw_set_transform(pos, _time * 0.8 + ph, Vector2(1.0, 0.5))
+				draw_circle(Vector2.ZERO, r * 2.2, Color(0.9, 0.55, 0.15, 0.7))
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			4:
+				# Rising embers.
+				draw_circle(pos, r * 2.2, Color(1.0, 0.4, 0.1, 0.10 + 0.08 * tw))
+				draw_circle(pos, r * 0.8, Color(1.0, 0.6 + 0.2 * tw, 0.2, 0.8))
+			5:
+				# Golden sparks.
+				_draw_star(pos, r * 1.8, Color(1.0, 0.85, 0.3, 0.35 + 0.4 * tw))
+			6:
+				# Twinkling crystals.
+				draw_colored_polygon(PackedVector2Array([
+					pos + Vector2(0, -r * 2.2), pos + Vector2(r * 1.2, 0),
+					pos + Vector2(0, r * 2.2), pos + Vector2(-r * 1.2, 0)]), Color(0.6, 0.95, 1.0, 0.25 + 0.4 * tw))
+			7:
+				# Digital rain.
+				draw_line(pos, pos - Vector2(0, 34.0 + r * 4.0), Color(0.3, 0.9, 1.0, 0.35), 2.0, true)
+				draw_circle(pos, 2.4, Color(0.8, 1.0, 1.0, 0.9))
+			8:
+				# Shooting stars.
+				var dir := vel.normalized()
+				draw_line(pos, pos - dir * (30.0 + r * 6.0), Color(1.0, 0.95, 1.0, 0.45), 2.0, true)
+				draw_circle(pos, r * 0.7, Color(1, 1, 1, 0.9))
 
 func get_current_theme() -> String:
 	return current_theme
@@ -217,15 +334,18 @@ func _process(delta: float) -> void:
 		_rainbow_t += delta
 		if _rainbow_t >= 4.0:
 			_rainbow_t = -1.0
+	_update_stage_fx(delta)
 	queue_redraw()
 
 func _draw() -> void:
 	if _gradient != null:
 		draw_texture_rect(_gradient, Rect2(Vector2.ZERO, size), false)
+	_draw_stage_tint()
 	if _is_shadow:
 		_draw_shadow_moon()
 		_draw_clouds()
 		_draw_sparkles()
+		_draw_stage_fx()
 		_draw_vignette()
 		return
 	if _is_night:
@@ -237,6 +357,7 @@ func _draw() -> void:
 	_draw_butterflies()
 	_draw_rainbow()
 	_draw_sparkles()
+	_draw_stage_fx()
 
 func _draw_sun() -> void:
 	# Tucked into the right-hand gap between the title and the board.

@@ -292,6 +292,8 @@ func _update_hud() -> void:
 	coin_label.text = _format_number(manager.coins)
 	next_label.text = manager.get_next_tier_text()
 	progress.value = manager.highest_unlocked
+	if _bg != null:
+		_bg.set_stage(manager.highest_unlocked)
 
 func _format_number(value: int) -> String:
 	if value >= 1000000:

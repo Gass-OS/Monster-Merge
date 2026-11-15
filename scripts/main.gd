@@ -470,53 +470,50 @@ func _play_merge_blip(tier: int) -> void:
 func _on_monster_unlocked(tier: int) -> void:
 	if tier >= 7:
 		_show_rainbow()
+	if tier >= 2 and tier < 8 and _win_fx != null:
+		_win_fx.stage_banner(tier, String(BackgroundFX.STAGE_NAMES[tier - 1]))
 	if tier == 8:
 		_fanfare()
 		if _win_fx != null:
-			_win_fx.show_win_banner("👑 COSMIC KING DRAGON!")
-			_win_fx.coin_fountain(Vector2(360, 500))
-			_win_fx.screen_flash()
+			_win_fx.big_win("COSMIC KING DRAGON!", 0, 4)
 		_voice("play_tier8_line")
 
 
 ## Lucky Spin prizes: jackpot (1000) and big wins (500+) get the treatment.
 func _on_spin_prize(kind: String, value: int) -> void:
 	if kind == "coins" and value >= 1000:
-		_jackpot_effects(Vector2(360, 500), "🎉 JACKPOT! +1000 🪙")
+		_jackpot_effects(Vector2(360, 500), "JACKPOT!", value, 4)
 		_voice("play_jackpot_line")
 	elif kind == "coins" and value >= 500:
-		_fanfare()
 		if _win_fx != null:
-			_win_fx.show_win_banner("BIG WIN! +%d 🪙" % value)
-			_win_fx.coin_fountain(Vector2(360, 500))
+			_win_fx.big_win("BIG WIN!", value, 2)
 
 
 ## Slots wins: 3-match (300+) gets banner + fountain + fanfare.
 func _on_slots_win(win: int) -> void:
 	if win >= 300:
-		_fanfare()
 		if _win_fx != null:
-			_win_fx.show_win_banner("🎰 SLOT WIN! +%d 🪙" % win)
-			_win_fx.coin_fountain(Vector2(360, 500))
+			_win_fx.big_win("SLOT WIN!", win, WinEffects.level_for_amount(win))
 		if win >= 500:
 			_voice("play_jackpot_line")
 
 
 ## Boss defeated: the boss panel already shows its own WIN banner, so this
 ## adds the fountain / flash / shake / rainbow / voice on top.
-func _on_boss_defeated(_level: int, _reward: int) -> void:
-	_jackpot_effects(Vector2(360, 320), "")
+func _on_boss_defeated(_level: int, reward: int) -> void:
+	_jackpot_effects(Vector2(360, 320), "BOSS DEFEATED!", reward, 3)
 	_voice("play_boss_line")
 
 
 ## Shared jackpot treatment (banner optional — pass "" to skip it).
-func _jackpot_effects(center: Vector2, banner_text: String) -> void:
-	_fanfare()
+func _jackpot_effects(center: Vector2, banner_text: String, amount: int = 0, level: int = 4) -> void:
 	if _win_fx != null:
 		if banner_text != "":
-			_win_fx.show_win_banner(banner_text)
-		_win_fx.coin_fountain(center)
-		_win_fx.screen_flash()
+			_win_fx.big_win(banner_text, amount, level)
+		else:
+			_fanfare()
+			_win_fx.coin_fountain(center)
+			_win_fx.screen_flash()
 		_win_fx.big_shake()
 	_show_rainbow()
 	if _game_manager != null and _game_manager.settings != null:

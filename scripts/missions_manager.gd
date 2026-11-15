@@ -74,7 +74,23 @@ const MISSION_POOL := [
 	{"kind": "earn_500", "desc": "Earn 500 coins today", "target": 500, "reward": 200},
 	{"kind": "hatch_egg", "desc": "Hatch a Mystery Egg", "target": 1, "reward": 150},
 	{"kind": "discover_tier", "desc": "Discover a new monster tier", "target": 1, "reward": 150},
+	# --- more missions (casino update) ---
+	{"kind": "merge_25", "desc": "Merge 25 monsters", "target": 25, "reward": 350},
+	{"kind": "merge_50", "desc": "Merge 50 monsters", "target": 50, "reward": 600},
+	{"kind": "reach_tier_5", "desc": "Reach Tier 5", "target": 1, "reward": 350},
+	{"kind": "reach_tier_6", "desc": "Reach Tier 6", "target": 1, "reward": 600},
+	{"kind": "earn_2000", "desc": "Earn 2,000 coins today", "target": 2000, "reward": 400},
+	{"kind": "earn_5000", "desc": "Earn 5,000 coins today", "target": 5000, "reward": 700},
+	{"kind": "wheel_3", "desc": "Spin the Lucky Wheel 3 times", "target": 3, "reward": 350},
+	{"kind": "slots_10", "desc": "Play Monster Slots 10 times", "target": 10, "reward": 500},
+	{"kind": "hatch_3", "desc": "Hatch 3 Mystery Eggs", "target": 3, "reward": 350},
+	{"kind": "boss_win", "desc": "Defeat a Boss", "target": 1, "reward": 450},
+	{"kind": "open_box", "desc": "Open a Gift Box", "target": 1, "reward": 150},
+	{"kind": "claim_gift", "desc": "Claim your Daily Gift", "target": 1, "reward": 100},
 ]
+
+# Missions per day (was 3). Older saves with fewer are topped up automatically.
+const DAILY_MISSION_COUNT := 5
 
 # Fixed achievements, each claimable once. Rewards in coins.
 const ACHIEVEMENTS := [
@@ -84,6 +100,15 @@ const ACHIEVEMENTS := [
 	{"id": "jackpot", "desc": "Win the Lucky Spin jackpot", "reward": 500},
 	{"id": "boss_defeated", "desc": "Defeat the Boss", "reward": 500},
 	{"id": "streak_7", "desc": "Claim the daily gift 7 days in a row", "reward": 500},
+	# --- more achievements (casino update) ---
+	{"id": "first_tier6", "desc": "Reach Tier 6 for the first time", "reward": 400},
+	{"id": "first_tier7", "desc": "Reach Tier 7 for the first time", "reward": 600},
+	{"id": "first_tier8", "desc": "Reach Tier 8: Cosmic King Dragon", "reward": 1000},
+	{"id": "merges_500", "desc": "Merge 500 monsters (total)", "reward": 800},
+	{"id": "merges_1000", "desc": "Merge 1,000 monsters (total)", "reward": 1500},
+	{"id": "coins_10000", "desc": "Earn 10,000 coins in total", "reward": 800},
+	{"id": "coins_50000", "desc": "Earn 50,000 coins in total", "reward": 2000},
+	{"id": "streak_3", "desc": "Claim the daily gift 3 days in a row", "reward": 250},
 ]
 
 const GIFT_BOX_MIN_INTERVAL := 120.0
@@ -177,6 +202,8 @@ func _ensure_today() -> bool:
 	var stored_date := str(data.get("date", ""))
 	var stored = data.get("missions", [])
 	if stored_date == today and stored is Array and not (stored as Array).is_empty():
+		if (stored as Array).size() < DAILY_MISSION_COUNT:
+			_top_up_missions(stored as Array, today)
 		return true
 	_generate_missions(today)
 	return true
@@ -192,7 +219,7 @@ func _generate_missions(day: String) -> void:
 		pool[i] = pool[j]
 		pool[j] = tmp
 	var chosen: Array = []
-	for k in range(mini(3, pool.size())):
+	for k in range(mini(DAILY_MISSION_COUNT, pool.size())):
 		var def: Dictionary = pool[k]
 		chosen.append({
 			"id": "daily_" + String(def["kind"]),
@@ -208,6 +235,42 @@ func _generate_missions(day: String) -> void:
 	_save()
 	missions_changed.emit()
 
+
+## Adds missions (never replaces or resets existing ones) until today's set
+## has DAILY_MISSION_COUNT entries. Used for saves made before the update.
+func _top_up_missions(stored: Array, day: String) -> void:
+	var have := {}
+	for m in stored:
+		have[String(m.get("kind", ""))] = true
+	var pool: Array = []
+	for def in MISSION_POOL:
+		if not have.has(String(def["kind"])):
+			pool.append(def)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = abs(hash(day)) + 17
+	for i in range(pool.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp = pool[i]
+		pool[i] = pool[j]
+		pool[j] = tmp
+	var added := false
+	for def in pool:
+		if stored.size() >= DAILY_MISSION_COUNT:
+			break
+		stored.append({
+			"id": "daily_" + String(def["kind"]),
+			"kind": String(def["kind"]),
+			"desc": String(def["desc"]),
+			"target": int(def["target"]),
+			"progress": 0,
+			"reward": int(def["reward"]),
+			"done": false,
+			"claimed": false,
+		})
+		added = true
+	if added:
+		_save()
+		missions_changed.emit()
 
 func _missions() -> Array:
 	# v1.3 integration fix: reads must never go stale. After an old save is
@@ -305,8 +368,14 @@ func set_missions_for_test(kinds: Array) -> void:
 func _on_merge(tier: int, _bonus: int) -> void:
 	_bump_mission("merge_5", 1)
 	_bump_mission("merge_10", 1)
+	_bump_mission("merge_25", 1)
+	_bump_mission("merge_50", 1)
 	if tier >= 4:
 		_set_mission_done("reach_tier_4")
+	if tier >= 5:
+		_set_mission_done("reach_tier_5")
+	if tier >= 6:
+		_set_mission_done("reach_tier_6")
 	check_achievements()
 
 
@@ -314,6 +383,10 @@ func _on_unlocked(tier: int) -> void:
 	_set_mission_done("discover_tier")
 	if tier >= 4:
 		_set_mission_done("reach_tier_4")
+	if tier >= 5:
+		_set_mission_done("reach_tier_5")
+	if tier >= 6:
+		_set_mission_done("reach_tier_6")
 	check_achievements()
 
 
@@ -322,22 +395,27 @@ func _on_coins_changed(value: int) -> void:
 	_last_coins = value
 	if delta > 0:
 		_bump_mission("earn_500", delta)
+		_bump_mission("earn_2000", delta)
+		_bump_mission("earn_5000", delta)
 	check_achievements()
 
 
 ## COORDINATOR: call once per completed Lucky Wheel spin.
 func notify_wheel_spun() -> void:
 	_bump_mission("wheel_once", 1)
+	_bump_mission("wheel_3", 1)
 
 
 ## COORDINATOR: call once per completed Monster Slots spin.
 func notify_slots_played() -> void:
 	_bump_mission("slots_3", 1)
+	_bump_mission("slots_10", 1)
 
 
 ## COORDINATOR: call once per hatched Mystery Egg.
 func notify_egg_hatched() -> void:
 	_set_mission_done("hatch_egg")
+	_bump_mission("hatch_3", 1)
 
 
 ## COORDINATOR: call when the Lucky Spin JACKPOT 1000 prize lands.
@@ -348,6 +426,7 @@ func notify_jackpot_won() -> void:
 ## COORDINATOR (boss worker): call when the Boss is defeated.
 func notify_boss_defeated() -> void:
 	_complete_achievement("boss_defeated")
+	_set_mission_done("boss_win")
 
 
 # --- Daily gift --------------------------------------------------------------
@@ -397,6 +476,7 @@ func claim_daily_gift() -> Dictionary:
 	if free_spin:
 		# Day-7 free spin: the wheel treats free_spin_used == false as free.
 		manager.free_spin_used = false
+	_set_mission_done("claim_gift")
 	check_achievements()
 	_save()
 	missions_changed.emit()
@@ -430,6 +510,22 @@ func _achievement_hint(achievement_id: String) -> String:
 			return "Defeat the Boss in Boss Rush"
 		"streak_7":
 			return "%d / 7 day streak" % manager.gift_streak
+		"streak_3":
+			return "%d / 3 day streak" % manager.gift_streak
+		"first_tier6":
+			return "Highest tier: %d / 6" % manager.highest_unlocked
+		"first_tier7":
+			return "Highest tier: %d / 7" % manager.highest_unlocked
+		"first_tier8":
+			return "Highest tier: %d / 8" % manager.highest_unlocked
+		"merges_500":
+			return "%d / 500 merges" % manager.lifetime_merges
+		"merges_1000":
+			return "%d / 1,000 merges" % manager.lifetime_merges
+		"coins_10000":
+			return "%d / 10,000 coins earned" % manager.total_coins_earned
+		"coins_50000":
+			return "%d / 50,000 coins earned" % manager.total_coins_earned
 	return ""
 
 
@@ -462,6 +558,22 @@ func check_achievements() -> void:
 		_complete_achievement("coins_1000")
 	if manager.gift_streak >= 7:
 		_complete_achievement("streak_7")
+	if manager.gift_streak >= 3:
+		_complete_achievement("streak_3")
+	if manager.highest_unlocked >= 6:
+		_complete_achievement("first_tier6")
+	if manager.highest_unlocked >= 7:
+		_complete_achievement("first_tier7")
+	if manager.highest_unlocked >= 8:
+		_complete_achievement("first_tier8")
+	if manager.lifetime_merges >= 500:
+		_complete_achievement("merges_500")
+	if manager.lifetime_merges >= 1000:
+		_complete_achievement("merges_1000")
+	if manager.total_coins_earned >= 10000:
+		_complete_achievement("coins_10000")
+	if manager.total_coins_earned >= 50000:
+		_complete_achievement("coins_50000")
 
 
 func _complete_achievement(achievement_id: String) -> void:
@@ -671,6 +783,7 @@ func open_gift_box() -> String:
 		_:
 			manager.free_spin_used = false
 			message = "FREE Lucky Spin! 🎡"
+	_set_mission_done("open_box")
 	_remove_gift_box(false)
 	_box_timer = 0.0
 	_next_box_in = randf_range(GIFT_BOX_MIN_INTERVAL, GIFT_BOX_MAX_INTERVAL)

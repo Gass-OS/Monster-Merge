@@ -18,13 +18,78 @@ class_name WinEffects
 ## Every method is guarded: calling it twice in a row, before the node is
 ## in the tree, or without a shake target set never errors.
 
+const BigWinScript = preload("res://scripts/big_win_overlay.gd")
+
 var shake_target: Control
+var _big: BigWinOverlay
 
 var _banner: Label
 var _banner_tween: Tween
 var _flash: ColorRect
 var _flash_tween: Tween
 var _shake_tween: Tween
+
+## Casino-style celebration (rays, marquee, trophy, coin rain, count-up).
+## level 0 = pick from the amount: 1 nice / 2 big / 3 mega / 4 super.
+func big_win(title: String, amount: int = 0, level: int = 0) -> void:
+	if not is_inside_tree():
+		return
+	if _big == null or not is_instance_valid(_big):
+		_big = BigWinScript.new()
+		add_child(_big)
+	var lv := level if level > 0 else level_for_amount(amount)
+	_big.play(title, amount, lv)
+
+static func level_for_amount(amount: int) -> int:
+	if amount >= 5000:
+		return 4
+	if amount >= 1000:
+		return 3
+	if amount >= 300:
+		return 2
+	return 1
+
+## Sliding "STAGE N" ribbon shown when a new monster stage is reached.
+func stage_banner(stage: int, stage_name: String) -> void:
+	if not is_inside_tree():
+		return
+	var view_w := get_viewport().get_visible_rect().size.x
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.04, 0.1, 0.94)
+	style.border_color = Color("#f8d66b")
+	style.set_border_width_all(4)
+	style.set_corner_radius_all(20)
+	style.content_margin_left = 28.0
+	style.content_margin_right = 28.0
+	style.content_margin_top = 12.0
+	style.content_margin_bottom = 12.0
+	panel.add_theme_stylebox_override("panel", style)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.custom_minimum_size = Vector2(420.0, 0.0)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	panel.add_child(box)
+	var top := Label.new()
+	top.text = "STAGE %d" % stage
+	top.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	top.add_theme_font_size_override("font_size", 38)
+	top.add_theme_color_override("font_color", Color("#ffe27b"))
+	box.add_child(top)
+	var bottom := Label.new()
+	bottom.text = stage_name.to_upper()
+	bottom.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bottom.add_theme_font_size_override("font_size", 24)
+	bottom.add_theme_color_override("font_color", Color.WHITE)
+	box.add_child(bottom)
+	panel.position = Vector2(-460.0, 150.0)
+	add_child(panel)
+	var target_x := (view_w - 420.0) * 0.5
+	var tw := create_tween()
+	tw.tween_property(panel, "position:x", target_x, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(1.8)
+	tw.tween_property(panel, "position:x", view_w + 40.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tw.tween_callback(panel.queue_free)
 
 func set_shake_target(target: Control) -> void:
 	shake_target = target
@@ -62,12 +127,11 @@ func coin_fountain(center: Vector2) -> void:
 		return
 	var count := 12
 	for i in range(count):
-		var coin := Label.new()
-		coin.text = "🪙"
-		coin.add_theme_font_size_override("font_size", 32)
+		var coin := CoinIcon.new()
+		coin.custom_minimum_size = Vector2(36, 36)
 		coin.position = center + Vector2(randf_range(-20.0, 20.0), randf_range(-10.0, 10.0))
-		coin.size = Vector2(40, 40)
-		coin.pivot_offset = Vector2(20, 20)
+		coin.size = Vector2(36, 36)
+		coin.pivot_offset = Vector2(18, 18)
 		coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(coin)
 		var vx := randf_range(-260.0, 260.0)
