@@ -2,11 +2,6 @@ extends Control
 class_name MonsterTile
 
 signal merge_requested(source_index: int, target_index: int)
-# Tap-to-merge: a press + release without moving is a tap, not a drag.
-signal tile_tapped(index: int)
-# Emitted while dragging so the grid can highlight the drop target.
-signal drag_hovered(source_index: int, global_position: Vector2)
-signal drag_ended
 
 const PALETTE := [
 	Color("#49a9ed"), Color("#72d64e"), Color("#83c94d"), Color("#f27642"),
@@ -14,7 +9,7 @@ const PALETTE := [
 ]
 const FACE_COLOR := Color("#26374c")
 const CHEEK_COLOR := Color(1.0, 0.55, 0.6, 0.75)
-const SILHOUETTE_COLOR := Color("#33475e")
+const SILHOUETTE_COLOR := Color("#080b12")
 const GLOW_COLORS := [
 	Color("#4cc3ff"), Color("#58ff7a"), Color("#a6ff4f"), Color("#ff7a2e"),
 	Color("#ffcc33"), Color("#7ff6ff"), Color("#5ad0ff"), Color("#c06bff")
@@ -26,29 +21,28 @@ var silhouette_mode: bool = false
 var _press_position := Vector2.ZERO
 var _dragging := false
 var _pressed := false
-# Tap-to-merge visuals (owned by the grid, drawn here).
-var _selected := false
-var _match_highlight := false
-var _drop_highlight := false
-var _drop_valid := true
-var _pulse_t := 0.0
-# --- Monster life (v1.3, Worker D; additive, cheap _draw/_process only) ----
-var _anim_t := 0.0
-var _bob_phase := 0.0
-var _blink_timer := 3.0      # counts down to the next blink
-var _blink_left := 0.0       # > 0 while the eyes are closed
-var _blinking := false
-var _wiggle_tween: Tween
-var _pop_tween: Tween
+var _ghost: MonsterTile = null
+var _time: float = 0.0
+var _redraw_acc: float = 0.0
 
 func _ready() -> void:
 	if custom_minimum_size == Vector2.ZERO:
 		custom_minimum_size = Vector2(120, 136)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	# Different phase per tile so the board doesn't bob in sync.
-	_bob_phase = float(tile_index if tile_index >= 0 else randi() % 16) * 0.9
-	_blink_timer = randf_range(2.0, 5.0)
+	_time = randf() * TAU
 	queue_redraw()
+
+func _process(delta: float) -> void:
+	if tier <= 0 or silhouette_mode or not is_visible_in_tree():
+		return
+	_time += delta
+	_redraw_acc += delta
+	if _redraw_acc >= 0.05:
+		_redraw_acc = 0.0
+		queue_redraw()
+
+func _exit_tree() -> void:
+	_end_ghost()
 
 func set_monster(new_tier: int) -> void:
 	tier = clampi(new_tier, 0, 8)
@@ -57,96 +51,6 @@ func set_monster(new_tier: int) -> void:
 func set_silhouette(value: bool) -> void:
 	silhouette_mode = value
 	queue_redraw()
-
-func _process(delta: float) -> void:
-	_anim_t += delta
-	_update_blink(delta)
-	# Pulse the selection / match / drop rings while any of them is shown.
-	if _selected or _match_highlight or _drop_highlight:
-		_pulse_t += delta
-	# Idle bob + blink need a redraw while a monster is shown; empty tiles
-	# and highlight-only frames are the only ones that can skip it.
-	if tier > 0:
-		queue_redraw()
-	elif _selected or _match_highlight or _drop_highlight:
-		queue_redraw()
-
-func _update_blink(delta: float) -> void:
-	if _blinking:
-		_blink_left -= delta
-		if _blink_left <= 0.0:
-			_blinking = false
-			_blink_timer = randf_range(2.0, 5.0)
-	else:
-		_blink_timer -= delta
-		if _blink_timer <= 0.0:
-			_blinking = true
-			_blink_left = 0.12  # eyes closed for ~0.12 s
-
-## True while the eyes are drawn closed. The test scene reads this to
-## prove the blink state cycles without watching pixels.
-func is_blinking() -> bool:
-	return _blinking
-
-func _bob_offset() -> float:
-	if tier <= 0:
-		return 0.0
-	return sin(_anim_t * 1.8 + _bob_phase) * 3.0
-
-## Happy wiggle when tapped: quick side-to-side rotation wobble.
-## Called from _finish_drag on a tap; the coordinator may also call it.
-func play_wiggle() -> void:
-	if tier <= 0 or not is_inside_tree():
-		return
-	pivot_offset = size * 0.5
-	if _wiggle_tween != null and _wiggle_tween.is_valid():
-		_wiggle_tween.kill()
-	rotation = 0.0
-	_wiggle_tween = create_tween()
-	_wiggle_tween.tween_property(self, "rotation", 0.12, 0.07)
-	_wiggle_tween.tween_property(self, "rotation", -0.10, 0.09)
-	_wiggle_tween.tween_property(self, "rotation", 0.05, 0.07)
-	_wiggle_tween.tween_property(self, "rotation", 0.0, 0.08)
-
-## Merge squash-and-stretch, two steps: squash wide, then stretch tall,
-## then settle. Replaces / complements the grid's single scale bounce;
-## the coordinator calls this on the merged tile instead of (or after)
-## the grid tween — both are guarded, calling twice is harmless.
-func play_merge_pop() -> void:
-	if tier <= 0 or not is_inside_tree():
-		return
-	pivot_offset = size * 0.5
-	if _pop_tween != null and _pop_tween.is_valid():
-		_pop_tween.kill()
-	scale = Vector2.ONE
-	_pop_tween = create_tween()
-	_pop_tween.tween_property(self, "scale", Vector2(1.22, 0.78), 0.09)
-	_pop_tween.tween_property(self, "scale", Vector2(0.92, 1.10), 0.11).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	_pop_tween.tween_property(self, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-# --- Tap-to-merge visual state (set by the grid) ----------------------------
-
-func set_selected(value: bool) -> void:
-	_selected = value
-	queue_redraw()
-
-func is_selected() -> bool:
-	return _selected
-
-func set_match_highlight(value: bool) -> void:
-	_match_highlight = value
-	queue_redraw()
-
-func is_match_highlighted() -> bool:
-	return _match_highlight
-
-func set_drop_highlight(value: bool, valid: bool = true) -> void:
-	_drop_highlight = value
-	_drop_valid = valid
-	queue_redraw()
-
-func is_drop_highlighted() -> bool:
-	return _drop_highlight
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
@@ -158,9 +62,9 @@ func _gui_input(event: InputEvent) -> void:
 			_finish_drag(get_global_transform_with_canvas() * event.position)
 	elif event is InputEventScreenDrag and _pressed:
 		if event.position.distance_to(_press_position) > 12.0:
-			_dragging = true
-		if _dragging and tier > 0:
-			drag_hovered.emit(tile_index, get_global_transform_with_canvas() * event.position)
+			_begin_drag()
+		if _dragging:
+			_move_ghost(get_global_transform_with_canvas() * event.position)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_pressed = true
@@ -170,30 +74,52 @@ func _gui_input(event: InputEvent) -> void:
 			_finish_drag(get_global_mouse_position())
 	elif event is InputEventMouseMotion and _pressed:
 		if get_global_mouse_position().distance_to(_press_position) > 12.0:
-			_dragging = true
-		if _dragging and tier > 0:
-			drag_hovered.emit(tile_index, get_global_mouse_position())
+			_begin_drag()
+		if _dragging:
+			_move_ghost(get_global_mouse_position())
 
-func _finish_drag(global_position: Vector2) -> void:
+func _begin_drag() -> void:
+	if _dragging or tier <= 0:
+		return
+	_dragging = true
+	modulate.a = 0.35
+	_ghost = MonsterTile.new()
+	_ghost.tier = tier
+	_ghost.custom_minimum_size = size
+	_ghost.size = size
+	_ghost.pivot_offset = size * 0.5
+	_ghost.scale = Vector2(1.12, 1.12)
+	_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ghost.z_index = 100
+	get_tree().root.add_child(_ghost)
+	_ghost.global_position = get_global_rect().position
+
+func _move_ghost(global_pos: Vector2) -> void:
+	if _ghost != null and is_instance_valid(_ghost):
+		_ghost.global_position = global_pos - _ghost.size * 0.5
+
+func _end_ghost() -> void:
+	modulate.a = 1.0
+	if _ghost != null and is_instance_valid(_ghost):
+		_ghost.queue_free()
+	_ghost = null
+
+func _finish_drag(drop_position: Vector2) -> void:
 	if not _pressed:
 		return
 	_pressed = false
-	drag_ended.emit()
-	if _dragging:
+	_end_ghost()
+	if tier <= 0:
 		_dragging = false
-		if tier > 0:
-			var parent_grid := get_parent()
-			if parent_grid:
-				for tile in parent_grid.get_children():
-					if tile is MonsterTile and tile.tile_index != tile_index and tile.get_global_rect().has_point(global_position):
-						merge_requested.emit(tile_index, tile.tile_index)
-						break
-	else:
-		# A press + release without moving is a tap, even on an empty tile
-		# (the grid uses empty-tile taps to clear the selection).
-		if tier > 0:
-			play_wiggle()
-		tile_tapped.emit(tile_index)
+		return
+	if _dragging:
+		var parent_grid := get_parent()
+		if parent_grid:
+			for tile in parent_grid.get_children():
+				if tile is MonsterTile and tile.tile_index != tile_index and tile.get_global_rect().has_point(drop_position):
+					merge_requested.emit(tile_index, tile.tile_index)
+					break
+	_dragging = false
 
 func _glow_color() -> Color:
 	if silhouette_mode:
@@ -207,87 +133,58 @@ func _draw() -> void:
 	var was_sil := silhouette_mode
 	var gc := _glow_color()
 	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color("#d8f4f2") if tier == 0 else Color("#fff8df")
-	panel.border_color = Color("#8ac9c5")
-	panel.set_border_width_all(3)
-	panel.set_corner_radius_all(18)
+	panel.bg_color = Color("#0b0f17") if tier == 0 else Color("#121826")
+	panel.border_color = Color("#222b3d") if tier == 0 else gc.darkened(0.35)
+	panel.set_border_width_all(2 if tier == 0 else 3)
+	panel.set_corner_radius_all(14)
+	if tier > 0 and not was_sil:
+		panel.shadow_color = Color(gc, 0.28)
+		panel.shadow_size = 7
 	draw_style_box(panel, rect)
 	if tier == 0:
-		draw_circle(size * 0.5, 13.0, Color("#b9dedb"))
-		_draw_highlights(gc)
+		draw_arc(size * 0.5, 12.0, 0.0, TAU, 28, Color("#2a3550"), 2.0, true)
 		return
-	var center := Vector2(size.x * 0.5, size.y * 0.47 + _bob_offset())
+	var bob := sin(_time * 2.2) * 2.5
+	var base := Vector2(size.x * 0.5, size.y * 0.47)
+	var center := base + Vector2(0.0, bob)
 	var s := minf(size.x, size.y) * 0.31
-	# Soft coloured aura behind the creature (kept from v2, subtle and light).
+	var pulse := 0.85 + 0.15 * sin(_time * 2.0)
 	if not was_sil:
 		for i in range(4):
-			draw_circle(center, s * (1.75 - float(i) * 0.38), Color(gc, 0.045 + 0.008 * float(tier)))
-	# Soft ground shadow (kept from v2, lightened for the bright theme).
-	draw_set_transform(center + Vector2(0, s * 1.2), 0.0, Vector2(1.0, 0.28))
-	draw_circle(Vector2.ZERO, s, Color(0, 0, 0, 0.15))
+			draw_circle(base, s * (1.75 - float(i) * 0.38), Color(gc, (0.045 + 0.008 * float(tier)) * pulse))
+	# Ground shadow (shrinks slightly as the monster floats up).
+	draw_set_transform(base + Vector2(0, s * 1.2), 0.0, Vector2(1.0 - bob * 0.02, 0.28))
+	draw_circle(Vector2.ZERO, s, Color(0, 0, 0, 0.55))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	var body_color: Color = SILHOUETTE_COLOR if was_sil else PALETTE[tier - 1]
-	_draw_creature(center, body_color)
-	# Tier plate (kept from v2, recolored bright: cream plate, glow border,
-	# dark navy text).
+	var tex := ArtLoader.monster(tier)
+	if tex != null:
+		# Real PNG art: coloured edge glow copy first, then the art itself.
+		var ts := tex.get_size()
+		var sc := (minf(size.x, size.y) * 0.8) / maxf(ts.x, ts.y)
+		var dst := ts * sc
+		var art_rect := Rect2(center - dst * 0.5, dst)
+		if was_sil:
+			draw_texture_rect(tex, art_rect, false, Color(0.03, 0.04, 0.08, 1.0))
+		else:
+			draw_texture_rect(tex, Rect2(art_rect.position + Vector2(-2.5, -2.5), dst), false, Color(gc, 0.75))
+			draw_texture_rect(tex, art_rect, false, Color.WHITE)
+	else:
+		# Procedural art: rim light from flat silhouettes, then the body.
+		silhouette_mode = true
+		_draw_creature(center + Vector2(-3.0, -3.0), Color(gc, 0.95))
+		_draw_creature(center + Vector2(2.5, 3.0), Color(gc.darkened(0.45), 0.55))
+		silhouette_mode = was_sil
+		var body_color: Color = SILHOUETTE_COLOR if was_sil else PALETTE[tier - 1].darkened(0.55)
+		_draw_creature(center, body_color)
+	# Tier plate.
 	var font := ThemeDB.fallback_font
 	var plate := StyleBoxFlat.new()
-	plate.bg_color = Color("#fff8df")
-	plate.border_color = gc
+	plate.bg_color = Color("#080b12")
+	plate.border_color = gc.darkened(0.3)
 	plate.set_border_width_all(1)
 	plate.set_corner_radius_all(6)
 	draw_style_box(plate, Rect2(8, size.y - 26, size.x - 16, 20))
-	draw_string(font, Vector2(8, size.y - 11), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, Color("#273b52"))
-	_draw_highlights(gc)
-
-func _draw_highlights(gc: Color) -> void:
-	# Bright cartoon rings for tap-to-merge, drawn on top so they stay
-	# visible. _pulse_t only advances while a ring is shown (_process).
-	var pulse := 0.5 + 0.5 * sin(_pulse_t * 5.0)
-	var rect := Rect2(Vector2.ZERO, size)
-	if _match_highlight and not _selected:
-		# Same-tier tiles pulse softly in the tier's glow colour:
-		# "tap me, we can merge".
-		var ring := StyleBoxFlat.new()
-		ring.bg_color = Color(gc, 0.10 + 0.08 * pulse)
-		ring.border_color = Color(gc, 0.55 + 0.35 * pulse)
-		ring.set_border_width_all(4)
-		ring.set_corner_radius_all(18)
-		draw_style_box(ring, rect)
-	if _drop_highlight:
-		# Tile under the finger while dragging. Valid target: the tier's
-		# glow colour; anything else: a neutral white ring.
-		var ring := StyleBoxFlat.new()
-		if _drop_valid:
-			ring.bg_color = Color(gc, 0.12 + 0.06 * pulse)
-			ring.border_color = Color(gc, 0.9)
-			ring.set_border_width_all(6)
-		else:
-			ring.bg_color = Color(1, 1, 1, 0.05)
-			ring.border_color = Color(1, 1, 1, 0.75)
-			ring.set_border_width_all(3)
-		ring.set_corner_radius_all(18)
-		draw_style_box(ring, rect.grow(-2))
-	if _selected:
-		# Thick glowing ring + soft halo + white pinstripe.
-		var halo := StyleBoxFlat.new()
-		halo.bg_color = Color(gc, 0.08 + 0.06 * pulse)
-		halo.border_color = Color(gc, 0.35 + 0.25 * pulse)
-		halo.set_border_width_all(3)
-		halo.set_corner_radius_all(20)
-		draw_style_box(halo, rect.grow(3))
-		var ring := StyleBoxFlat.new()
-		ring.bg_color = Color(gc, 0.10)
-		ring.border_color = Color(gc, 0.95)
-		ring.set_border_width_all(5)
-		ring.set_corner_radius_all(18)
-		draw_style_box(ring, rect.grow(-2))
-		var inner := StyleBoxFlat.new()
-		inner.bg_color = Color(0, 0, 0, 0)
-		inner.border_color = Color(1, 1, 1, 0.85)
-		inner.set_border_width_all(2)
-		inner.set_corner_radius_all(15)
-		draw_style_box(inner, rect.grow(-8))
+	draw_string(font, Vector2(8, size.y - 11), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, gc.lightened(0.25))
 
 func _draw_creature(c: Vector2, color: Color) -> void:
 	var s := minf(size.x, size.y) * 0.31
@@ -338,26 +235,17 @@ func _round_body(c: Vector2, s: float, r: float, c_main: Color, c_dark: Color, c
 		draw_circle(c + Vector2(-r * 0.38, -r * 0.44), r * 0.2, Color(1, 1, 1, 0.35))
 
 func _face(c: Vector2, s: float) -> void:
-	var er := maxf(3.5, s * 0.13)
+	# Menacing glowing eyes and a stern mouth.
+	var gc := _glow_color()
+	var er := maxf(3.5, s * 0.12)
 	var eye_l := c + Vector2(-s * 0.32, -s * 0.08)
 	var eye_r := c + Vector2(s * 0.32, -s * 0.08)
-	if _blinking:
-		# Eyes closed: short horizontal lines instead of dots.
-		draw_line(eye_l + Vector2(-er, 0), eye_l + Vector2(er, 0), FACE_COLOR, 3.0, true)
-		draw_line(eye_r + Vector2(-er, 0), eye_r + Vector2(er, 0), FACE_COLOR, 3.0, true)
-	else:
-		draw_circle(eye_l, er, FACE_COLOR)
-		draw_circle(eye_r, er, FACE_COLOR)
-		# Eye sparkle: big highlight + tiny glint.
-		draw_circle(eye_l + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
-		draw_circle(eye_r + Vector2(-er * 0.3, -er * 0.35), maxf(1.5, s * 0.055), Color.WHITE)
-		draw_circle(eye_l + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
-		draw_circle(eye_r + Vector2(er * 0.35, er * 0.3), maxf(1.0, s * 0.03), Color(1, 1, 1, 0.85))
-	# Cheeks.
-	draw_circle(c + Vector2(-s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
-	draw_circle(c + Vector2(s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
-	# Smile.
-	draw_arc(c + Vector2(0, s * 0.1), s * 0.28, 0.25, PI - 0.25, 16, FACE_COLOR, 3.0)
+	for e: Vector2 in [eye_l, eye_r]:
+		draw_circle(e, er * 2.4, Color(gc, 0.16))
+		draw_circle(e, er * 1.6, Color(gc, 0.35))
+		draw_circle(e, er, gc.lightened(0.3))
+		draw_circle(e, er * 0.45, Color.WHITE)
+	draw_line(c + Vector2(-s * 0.2, s * 0.3), c + Vector2(s * 0.2, s * 0.3), Color(0, 0, 0, 0.6), 3.0, true)
 
 func _sparkle(pos: Vector2, r: float, col: Color) -> void:
 	var pts := PackedVector2Array([
@@ -523,14 +411,10 @@ func _robo_face(c: Vector2, s: float) -> void:
 	visor.bg_color = Color("#1d2b3a")
 	visor.set_corner_radius_all(8)
 	draw_style_box(visor, Rect2(c + Vector2(-s * 0.55, -s * 0.35), Vector2(s * 1.1, s * 0.42)))
-	if _blinking:
-		draw_line(c + Vector2(-s * 0.40, -s * 0.14), c + Vector2(-s * 0.16, -s * 0.14), Color("#54e0ff"), 3.0, true)
-		draw_line(c + Vector2(s * 0.16, -s * 0.14), c + Vector2(s * 0.40, -s * 0.14), Color("#54e0ff"), 3.0, true)
-	else:
-		draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
-		draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
-		draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
-		draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
+	draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
+	draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.11, Color("#54e0ff"))
+	draw_circle(c + Vector2(-s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
+	draw_circle(c + Vector2(s * 0.28, -s * 0.14), s * 0.05, Color.WHITE)
 	# Grille mouth.
 	for i in range(3):
 		var mx := -s * 0.24 + float(i) * s * 0.24
