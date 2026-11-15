@@ -20,6 +20,9 @@ const GLOW_COLORS := [
 	Color("#ffcc33"), Color("#7ff6ff"), Color("#5ad0ff"), Color("#c06bff")
 ]
 
+# Shadow (dark-fantasy) theme switch, set by the UI manager on theme change.
+static var shadow_theme: bool = false
+var _shadow_acc: float = 0.0
 var tile_index: int = -1
 var tier: int = 0
 var silhouette_mode: bool = false
@@ -67,7 +70,14 @@ func _process(delta: float) -> void:
 	# Idle bob + blink need a redraw while a monster is shown; empty tiles
 	# and highlight-only frames are the only ones that can skip it.
 	if tier > 0:
-		queue_redraw()
+		if shadow_theme:
+			# The rim-light passes are heavier: redraw the dark theme at 20 fps.
+			_shadow_acc += delta
+			if _shadow_acc >= 0.05:
+				_shadow_acc = 0.0
+				queue_redraw()
+		else:
+			queue_redraw()
 	elif _selected or _match_highlight or _drop_highlight:
 		queue_redraw()
 
@@ -206,39 +216,73 @@ func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, size)
 	var was_sil := silhouette_mode
 	var gc := _glow_color()
+	var dark := shadow_theme
 	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color("#d8f4f2") if tier == 0 else Color("#fff8df")
-	panel.border_color = Color("#8ac9c5")
+	if dark:
+		panel.bg_color = Color("#0b0f17") if tier == 0 else Color("#121826")
+		panel.border_color = Color("#222b3d") if tier == 0 else gc.darkened(0.35)
+		if tier > 0 and not was_sil:
+			panel.shadow_color = Color(gc, 0.28)
+			panel.shadow_size = 7
+	else:
+		panel.bg_color = Color("#d8f4f2") if tier == 0 else Color("#fff8df")
+		panel.border_color = Color("#8ac9c5")
 	panel.set_border_width_all(3)
 	panel.set_corner_radius_all(18)
 	draw_style_box(panel, rect)
 	if tier == 0:
-		draw_circle(size * 0.5, 13.0, Color("#b9dedb"))
+		draw_circle(size * 0.5, 13.0, Color("#2a3550") if dark else Color("#b9dedb"))
 		_draw_highlights(gc)
 		return
 	var center := Vector2(size.x * 0.5, size.y * 0.47 + _bob_offset())
 	var s := minf(size.x, size.y) * 0.31
-	# Soft coloured aura behind the creature (kept from v2, subtle and light).
+	# Soft coloured aura behind the creature.
 	if not was_sil:
 		for i in range(4):
 			draw_circle(center, s * (1.75 - float(i) * 0.38), Color(gc, 0.045 + 0.008 * float(tier)))
-	# Soft ground shadow (kept from v2, lightened for the bright theme).
+	# Soft ground shadow (stronger on the dark theme).
 	draw_set_transform(center + Vector2(0, s * 1.2), 0.0, Vector2(1.0, 0.28))
-	draw_circle(Vector2.ZERO, s, Color(0, 0, 0, 0.15))
+	draw_circle(Vector2.ZERO, s, Color(0, 0, 0, 0.55 if dark else 0.15))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	var body_color: Color = SILHOUETTE_COLOR if was_sil else PALETTE[tier - 1]
-	_draw_creature(center, body_color)
-	# Tier plate (kept from v2, recolored bright: cream plate, glow border,
-	# dark navy text).
+	var tex := ArtLoader.monster(tier)
+	if tex != null:
+		_draw_art(tex, center, gc, was_sil)
+	elif dark and not was_sil:
+		# Rim light: flat glow-coloured silhouettes first, then the dark body.
+		silhouette_mode = true
+		_draw_creature(center + Vector2(-3.0, -3.0), Color(gc, 0.95))
+		_draw_creature(center + Vector2(2.5, 3.0), Color(gc.darkened(0.45), 0.55))
+		silhouette_mode = false
+		var dark_body: Color = PALETTE[tier - 1].darkened(0.55)
+		_draw_creature(center, dark_body)
+	else:
+		var body_color: Color = SILHOUETTE_COLOR if was_sil else PALETTE[tier - 1]
+		_draw_creature(center, body_color)
+	# Tier plate.
 	var font := ThemeDB.fallback_font
 	var plate := StyleBoxFlat.new()
-	plate.bg_color = Color("#fff8df")
-	plate.border_color = gc
+	plate.bg_color = Color("#080b12") if dark else Color("#fff8df")
+	plate.border_color = gc.darkened(0.3) if dark else gc
 	plate.set_border_width_all(1)
 	plate.set_corner_radius_all(6)
 	draw_style_box(plate, Rect2(8, size.y - 26, size.x - 16, 20))
-	draw_string(font, Vector2(8, size.y - 11), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, Color("#273b52"))
+	var plate_text: Color = gc.lightened(0.25) if dark else Color("#273b52")
+	draw_string(font, Vector2(8, size.y - 11), "TIER %d" % tier, HORIZONTAL_ALIGNMENT_CENTER, size.x - 16, 14, plate_text)
 	_draw_highlights(gc)
+
+## Real PNG art (res://art/monsters/tier_N.png). Falls back to the drawn
+## creature when the file is missing, see ArtLoader.
+func _draw_art(tex: Texture2D, center: Vector2, gc: Color, was_sil: bool) -> void:
+	var ts := tex.get_size()
+	var sc := (minf(size.x, size.y) * 0.8) / maxf(ts.x, ts.y)
+	var dst := ts * sc
+	var art_rect := Rect2(center - dst * 0.5, dst)
+	if was_sil:
+		draw_texture_rect(tex, art_rect, false, SILHOUETTE_COLOR)
+		return
+	if shadow_theme:
+		draw_texture_rect(tex, Rect2(art_rect.position + Vector2(-2.5, -2.5), dst), false, Color(gc, 0.75))
+	draw_texture_rect(tex, art_rect, false, Color.WHITE)
 
 func _draw_highlights(gc: Color) -> void:
 	# Bright cartoon rings for tap-to-merge, drawn on top so they stay
@@ -322,6 +366,8 @@ func _draw_creature(c: Vector2, color: Color) -> void:
 		return
 	if tier == 7:
 		_robo_face(c, s)
+	elif shadow_theme:
+		_shadow_face(c, s)
 	else:
 		_face(c, s)
 
@@ -358,6 +404,22 @@ func _face(c: Vector2, s: float) -> void:
 	draw_circle(c + Vector2(s * 0.62, s * 0.2), maxf(2.5, s * 0.09), CHEEK_COLOR)
 	# Smile.
 	draw_arc(c + Vector2(0, s * 0.1), s * 0.28, 0.25, PI - 0.25, 16, FACE_COLOR, 3.0)
+
+func _shadow_face(c: Vector2, s: float) -> void:
+	# Menacing glowing eyes and a stern mouth for the dark theme.
+	var gc := _glow_color()
+	var er := maxf(3.5, s * 0.12)
+	var eye_l := c + Vector2(-s * 0.32, -s * 0.08)
+	var eye_r := c + Vector2(s * 0.32, -s * 0.08)
+	for e: Vector2 in [eye_l, eye_r]:
+		if _blinking:
+			draw_line(e + Vector2(-er, 0), e + Vector2(er, 0), gc, 3.0, true)
+		else:
+			draw_circle(e, er * 2.4, Color(gc, 0.16))
+			draw_circle(e, er * 1.6, Color(gc, 0.35))
+			draw_circle(e, er, gc.lightened(0.3))
+			draw_circle(e, er * 0.45, Color.WHITE)
+	draw_line(c + Vector2(-s * 0.2, s * 0.3), c + Vector2(s * 0.2, s * 0.3), Color(0, 0, 0, 0.6), 3.0, true)
 
 func _sparkle(pos: Vector2, r: float, col: Color) -> void:
 	var pts := PackedVector2Array([

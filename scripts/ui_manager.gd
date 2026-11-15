@@ -26,6 +26,8 @@ var _missions_button: Button
 var _gift_button: Button
 # --- v1.3 integration: theme + gallery pose toggle --------------------------
 var _bg: BackgroundFX = null
+var _title_label: Label = null
+var _hint_label: Label = null
 var _gallery_show_alt: bool = false
 var _board_shake: Tween
 var _margin_shake: Tween
@@ -64,14 +66,21 @@ func _build_interface() -> void:
 	coin_panel = _panel(Color("#fff0a9"), 22)
 	coin_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(coin_panel)
+	var coin_row := HBoxContainer.new()
+	coin_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	coin_row.add_theme_constant_override("separation", 10)
+	coin_panel.add_child(coin_row)
+	var coin_icon := CoinIcon.new()
+	coin_icon.custom_minimum_size = Vector2(34, 34)
+	coin_row.add_child(coin_icon)
 	coin_label = Label.new()
-	coin_label.text = "🪙  0"
+	coin_label.text = "0"
 	coin_label.add_theme_font_size_override("font_size", 28)
 	coin_label.add_theme_color_override("font_color", Color("#714319"))
 	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	coin_panel.add_child(coin_label)
+	coin_row.add_child(coin_label)
 	var gallery_button := Button.new()
-	gallery_button.text = "🏆 GALLERY"
+	gallery_button.text = "GALLERY"
 	gallery_button.custom_minimum_size = Vector2(150, 58)
 	_style_button(gallery_button, Color("#287e8b"))
 	gallery_button.pressed.connect(_show_gallery)
@@ -81,16 +90,16 @@ func _build_interface() -> void:
 	# _missions_button gets a ❗ badge when a reward is ready to claim;
 	# _gift_button shows ✓ once today's gift is claimed.
 	var missions_button := Button.new()
-	missions_button.text = "📋"
-	missions_button.custom_minimum_size = Vector2(64, 58)
-	missions_button.add_theme_font_size_override("font_size", 26)
+	missions_button.text = "TASKS"
+	missions_button.custom_minimum_size = Vector2(76, 58)
+	missions_button.add_theme_font_size_override("font_size", 15)
 	_style_button(missions_button, Color("#7b1fa2"))
 	top.add_child(missions_button)
 	_missions_button = missions_button
 	var gift_button := Button.new()
-	gift_button.text = "🎁"
+	gift_button.text = "GIFT"
 	gift_button.custom_minimum_size = Vector2(64, 58)
-	gift_button.add_theme_font_size_override("font_size", 26)
+	gift_button.add_theme_font_size_override("font_size", 15)
 	_style_button(gift_button, Color("#b8860b"))
 	top.add_child(gift_button)
 	_gift_button = gift_button
@@ -103,6 +112,7 @@ func _build_interface() -> void:
 	title.add_theme_color_override("font_shadow_color", Color("#287d9a"))
 	title.add_theme_constant_override("shadow_offset_x", 3)
 	title.add_theme_constant_override("shadow_offset_y", 4)
+	_title_label = title
 	layout.add_child(title)
 	next_label = Label.new()
 	next_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -139,9 +149,10 @@ func _build_interface() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_font_size_override("font_size", 17)
 	hint.add_theme_color_override("font_color", Color("#15556c"))
+	_hint_label = hint
 	layout.add_child(hint)
 	spawn_button = Button.new()
-	spawn_button.text = "🥚   SPAWN EGG"
+	spawn_button.text = "SPAWN EGG"
 	spawn_button.custom_minimum_size = Vector2(0, 92)
 	spawn_button.add_theme_font_size_override("font_size", 31)
 	_style_glossy_button(spawn_button)
@@ -156,6 +167,34 @@ func _build_interface() -> void:
 func apply_theme(theme_id: String) -> void:
 	if _bg != null:
 		_bg.apply_theme(theme_id)
+	MonsterTile.shadow_theme = (theme_id == "shadow")
+	_restyle_for_theme()
+
+## Restyles the persistent HUD for the dark "shadow" theme or back to bright.
+func _restyle_for_theme() -> void:
+	var dark := MonsterTile.shadow_theme
+	if coin_panel != null:
+		coin_panel.add_theme_stylebox_override("panel", _flat_style(Color("#121826") if dark else Color("#fff0a9"), 22, Color("#b8923a"), 2))
+	if coin_label != null:
+		coin_label.add_theme_color_override("font_color", Color("#ffd36b") if dark else Color("#714319"))
+	if _title_label != null:
+		_title_label.add_theme_color_override("font_color", Color("#f1e7c8") if dark else Color("#ffffff"))
+		_title_label.add_theme_color_override("font_shadow_color", Color("#8a1422") if dark else Color("#287d9a"))
+	if next_label != null:
+		next_label.add_theme_color_override("font_color", Color("#9fb4d8") if dark else Color("#164d69"))
+	if progress != null:
+		progress.add_theme_stylebox_override("background", _flat_style(Color("#10141f") if dark else Color("#d4f2f4"), 12, Color("#232c3d") if dark else Color.TRANSPARENT, 2 if dark else 0))
+		progress.add_theme_stylebox_override("fill", _flat_style(Color("#e8a93a") if dark else Color("#ffc64b"), 12))
+	if board_panel != null:
+		if dark:
+			board_panel.add_theme_stylebox_override("panel", _flat_style(Color("#0b0f18"), 28, Color("#7a5a22"), 8))
+		else:
+			board_panel.add_theme_stylebox_override("panel", _flat_style(Color("#168c91"), 28, Color("#0c6976"), 8))
+	if _hint_label != null:
+		_hint_label.add_theme_color_override("font_color", Color("#7f8fae") if dark else Color("#15556c"))
+	if grid != null:
+		for tile in grid.tiles:
+			tile.queue_redraw()
 
 
 ## v1.3 integration: rainbow celebration on the board sky.
@@ -245,12 +284,12 @@ func _sfx(method_name: String) -> void:
 		sm.call(method_name)
 
 func _update_coins(value: int) -> void:
-	coin_label.text = "🪙  %s" % _format_number(value)
+	coin_label.text = _format_number(value)
 
 func _update_hud() -> void:
 	if manager == null:
 		return
-	coin_label.text = "🪙  %s" % _format_number(manager.coins)
+	coin_label.text = _format_number(manager.coins)
 	next_label.text = manager.get_next_tier_text()
 	progress.value = manager.highest_unlocked
 
@@ -366,9 +405,9 @@ func _flash(col: Color) -> void:
 	tw.tween_callback(f.queue_free)
 
 func _fly_coin(from: Vector2, to: Vector2, delay: float, is_last: bool) -> void:
-	var coin := Label.new()
-	coin.text = "🪙"
-	coin.add_theme_font_size_override("font_size", 30)
+	var coin := CoinIcon.new()
+	coin.custom_minimum_size = Vector2(40, 40)
+	coin.pivot_offset = Vector2(20, 20)
 	coin.position = from
 	coin.size = Vector2(40, 40)
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -637,9 +676,9 @@ func _refresh_mission_buttons() -> void:
 	if _missions_button == null or _gift_button == null:
 		return
 	if missions_manager == null:
-		_missions_button.text = "📋"
-		_gift_button.text = "🎁"
+		_missions_button.text = "TASKS"
+		_gift_button.text = "GIFT"
 		return
 	var badge := missions_manager.pending_badge_count()
-	_missions_button.text = "📋❗" if badge > 0 else "📋"
-	_gift_button.text = "🎁✓" if not missions_manager.gift_available_today() else "🎁"
+	_missions_button.text = "TASKS!" if badge > 0 else "TASKS"
+	_gift_button.text = "DONE" if not missions_manager.gift_available_today() else "GIFT"

@@ -23,7 +23,7 @@ class_name BackgroundFX
 ##   a hot-air balloon drifting across the sky (loops), 2-3 butterflies
 ##   fluttering on sine paths. Both run in every theme.
 
-const THEME_NAMES := ["sunny", "sunset", "night", "candy"]
+const THEME_NAMES := ["sunny", "sunset", "night", "candy", "shadow"]
 
 var current_theme: String = "sunny"
 
@@ -43,6 +43,7 @@ var _cloud_color := Color(1, 1, 1, 0.45)
 var _sparkle_color := Color(1.0, 0.95, 0.6)
 var _accent := Color("#168c91")
 var _is_night := false
+var _is_shadow := false
 # Attractions.
 var _balloon := {"pos": Vector2(-90.0, 170.0), "speed": 11.0}
 var _butterflies: Array = []
@@ -97,6 +98,7 @@ func get_accent_color() -> Color:
 
 func _apply_palette(name: String) -> void:
 	_is_night = false
+	_is_shadow = false
 	match name:
 		"sunset":
 			_sky_top = Color("#ff8c5a")
@@ -121,6 +123,19 @@ func _apply_palette(name: String) -> void:
 			_cloud_color = Color(0.56, 0.69, 0.88, 0.28)
 			_sparkle_color = Color(1.0, 0.95, 0.6)
 			_accent = Color("#3b6fd4")
+		"shadow":
+			# Dark-fantasy night: near-black sky, blood moon, fog, rising embers.
+			_is_shadow = true
+			_sky_top = Color("#04050b")
+			_sky_mid = Color("#0f1a35")
+			_sky_bottom = Color("#220d18")
+			_sun_color = Color("#e9d7d0")
+			_sun_core = Color("#f3e6e0")
+			_sun_pos = Vector2(642.0, 208.0)
+			_sun_radius = 40.0
+			_cloud_color = Color(0.45, 0.52, 0.75, 0.07)
+			_sparkle_color = Color(1.0, 0.55, 0.2)
+			_accent = Color("#7a5a22")
 		"candy":
 			_sky_top = Color("#ffb3e6")
 			_sky_mid = Color("#d9a7ff")
@@ -207,6 +222,12 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if _gradient != null:
 		draw_texture_rect(_gradient, Rect2(Vector2.ZERO, size), false)
+	if _is_shadow:
+		_draw_shadow_moon()
+		_draw_clouds()
+		_draw_sparkles()
+		_draw_vignette()
+		return
 	if _is_night:
 		_draw_moon()
 	else:
@@ -246,6 +267,34 @@ func _draw_moon() -> void:
 	# Rosy cheeks.
 	draw_circle(c + Vector2(-r * 0.55, r * 0.25), r * 0.12, Color(1.0, 0.6, 0.65, 0.6))
 	draw_circle(c + Vector2(r * 0.55, r * 0.25), r * 0.12, Color(1.0, 0.6, 0.65, 0.6))
+
+func _draw_shadow_moon() -> void:
+	# Blood moon with a slow pulsing halo, same spot as the sun.
+	var c := Vector2(size.x - 78.0, _sun_pos.y)
+	var r := _sun_radius
+	var pulse := 0.02 * sin(_time * 1.2)
+	draw_circle(c, r * 2.6, Color(0.85, 0.15, 0.2, 0.06 + pulse))
+	draw_circle(c, r * 1.95, Color(0.9, 0.3, 0.3, 0.09 + pulse))
+	draw_circle(c, r * 1.45, Color(0.95, 0.5, 0.45, 0.12))
+	draw_circle(c, r, _sun_color)
+	draw_circle(c + Vector2(-r * 0.28, -r * 0.2), r * 0.21, Color("#cdb7b3"))
+	draw_circle(c + Vector2(r * 0.3, r * 0.25), r * 0.15, Color("#cdb7b3"))
+	draw_circle(c + Vector2(r * 0.15, -r * 0.38), r * 0.1, Color("#d8c3be"))
+
+func _draw_vignette() -> void:
+	var w := size.x
+	var h := size.y
+	var d := 200.0
+	var dark := Color(0, 0, 0, 0.7)
+	var clear := Color(0, 0, 0, 0)
+	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, d), Vector2(0, d)]),
+		PackedColorArray([dark, dark, clear, clear]))
+	draw_polygon(PackedVector2Array([Vector2(0, h - d), Vector2(w, h - d), Vector2(w, h), Vector2(0, h)]),
+		PackedColorArray([clear, clear, dark, dark]))
+	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(d, 0), Vector2(d, h), Vector2(0, h)]),
+		PackedColorArray([dark, clear, clear, dark]))
+	draw_polygon(PackedVector2Array([Vector2(w - d, 0), Vector2(w, 0), Vector2(w, h), Vector2(w - d, h)]),
+		PackedColorArray([clear, dark, dark, clear]))
 
 func _draw_clouds() -> void:
 	for cloud in _clouds:
@@ -305,7 +354,15 @@ func _draw_sparkles() -> void:
 		var alpha := 0.35 + 0.3 * sin(_time * 2.0 + float(sp["phase"]))
 		var pos := Vector2(base.x + sin(_time * 0.8 + float(sp["phase"])) * float(sp["sway"]), base.y)
 		var r: float = sp["size"]
-		if _is_night:
+		if _is_shadow:
+			# Dim stars; the rest are orange embers rising off the ground.
+			if bool(sp["star"]):
+				_draw_star(pos, r * 1.2, Color(0.8, 0.88, 1.0, alpha * 0.8))
+			else:
+				var flicker := 0.5 + 0.5 * sin(_time * 5.0 + float(sp["phase"]))
+				draw_circle(pos, r * 2.4, Color(1.0, 0.4, 0.1, 0.07 + 0.05 * flicker))
+				draw_circle(pos, r * 0.8, Color(1.0, 0.55 + 0.25 * flicker, 0.18, 0.5 + 0.4 * flicker))
+		elif _is_night:
 			# Stars twinkle; the rest are warm fireflies glowing softly.
 			if bool(sp["star"]):
 				_draw_star(pos, r * 1.6, Color(1.0, 0.98, 0.8, alpha + 0.25))

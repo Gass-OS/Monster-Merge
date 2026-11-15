@@ -18,12 +18,13 @@ extends RefCounted
 
 const SAVE_PATH := "user://monster_merge_save.json"
 
-const THEMES := ["sunny", "sunset", "night", "candy"]
+const THEMES := ["sunny", "sunset", "night", "candy", "shadow"]
 const THEME_NAMES := {
 	"sunny": "Sunny Day",
 	"sunset": "Sunset",
 	"night": "Starry Night",
 	"candy": "Candy Land",
+	"shadow": "Shadow Night",
 }
 
 ## v1.3 integration: emitted whenever the theme changes (settings panel,
