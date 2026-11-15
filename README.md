@@ -24,9 +24,10 @@
 - 🪙 **Build your coin stash** — every merge pays a coin bonus, while evolved monsters earn passive income every second
 - 🏆 **Complete your collection** — 8 hand-crafted monster tiers, with showcase artwork and alternate poses in the gallery
 - 🎁 **Come back for rewards** — daily gifts and streaks, rotating missions, achievements and surprise gift boxes on the board
-- 🎡 **Take a fun detour** — Lucky Spin, Monster Slots and Mystery Egg in the casino corner (in-game coins only)
+- 🎡 **Take a fun detour** — Lucky Spin, Monster Slots and Mystery Egg in the casino corner (in-game coins only), with a big-win celebration overlay for the big prizes
 - 👹 **Boss Rush** — every 25 merges a boss appears: beat the clock with your monsters to win big rewards
-- 🎨 **Make the world yours** — Sunny, Sunset, Starry Night and Candy Land themes
+- 🎨 **Make the world yours** — Sunny, Sunset, Starry Night, Candy Land and Shadow Night themes, plus stage backgrounds that evolve as you climb the tiers
+- 🖼️ **Your own art** — drop custom PNG art into `art/monsters/` and `art/bosses/` and the game will use it (built-in art is the fallback)
 - 💾 **Keep your progress** — coins, discoveries, settings and board state save locally
 
 ## 🐲 Meet the evolution family
@@ -81,6 +82,7 @@ Every push to `main` builds an APK with GitHub Actions — download **`Monster-M
 | **Android** | arm64-v8a — package `com.gassos.monstermerge` |
 | **Save data** | `user://monster_merge_save.json` |
 | **Art & music** | Gallery showcase art in `assets/gallery/` (PNG), procedural soundtrack in `assets/music/` (OGG) |
+| **Missions** | 3 picked daily from a pool of 20, plus 8 achievements |
 
 ```bash
 git clone https://github.com/Gass-OS/Monster-Merge.git
@@ -95,6 +97,7 @@ cd Monster-Merge
 ```
 ├── scenes/Main.tscn     # the whole game — menu, board, casino, gallery
 ├── scripts/             # grid, monsters, casino, boss rush, missions, themes, audio
+├── art/                 # optional custom PNG art (monsters, bosses)
 ├── assets/gallery/      # showcase + alternate art for all 8 tiers
 ├── assets/music/        # procedural soundtrack tracks
 └── icon.png             # slime hatching from an egg
@@ -106,7 +109,7 @@ cd Monster-Merge
 
 | Version | Highlights |
 |:---:|---|
-| **1.3.2** | Casino panels centred on screen, unlock art centred |
+| **1.3.2** | Casino panels centred on screen, unlock art centred — plus Shadow Night theme, big-win overlay, 12 new missions, 8 achievements, stage backgrounds, PNG art support |
 | 1.3.1 | Settings / back-button fix — panels really close, back opens pause |
 | 1.3.0 | Deep Systems — settings, pause, missions, gifts, Boss Rush, themes, casino |
 | 1.2.0 | Bright cartoon look, main menu, tap-to-merge, casino, soundtrack |
